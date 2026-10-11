@@ -1,0 +1,148 @@
+/* 任务中心（Mission Control）面板样式，全部使用 .apx-mc- 前缀避免污染应用界面 */
+
+.apx-mc-root {
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-y: auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* 窄面板（约 300-400px）下允许横向滚动查看全部列 */
+.apx-mc-tablewrap {
+  overflow-x: auto;
+  margin-top: 4px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 6px;
+}
+
+.apx-mc-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 430px;
+  font-size: 11px;
+}
+
+.apx-mc-head {
+  text-align: left;
+  font-weight: 600;
+  opacity: 0.65;
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: inherit;
+}
+
+.apx-mc-cell {
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.apx-mc-num {
+  font-family: ui-monospace, monospace;
+  text-align: right;
+}
+
+/* 标题列：超长截断，完整内容放在 title 属性 */
+.apx-mc-titlecell {
+  max-width: 110px;
+  min-width: 90px;
+}
+
+.apx-mc-title {
+  display: inline-block;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* 行 hover 效果 */
+.apx-mc-row:hover {
+  background: rgba(128, 128, 128, 0.12);
+}
+
+/* 当前焦点会话标记 */
+.apx-mc-current {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.apx-mc-tag {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 9px;
+  line-height: 1.4;
+  color: #3b82f6;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  padding: 0 4px;
+  vertical-align: middle;
+}
+
+/* 需要关注的会话：红色描边 + 红点 */
+.apx-mc-attention {
+  box-shadow: inset 0 0 0 1.5px #ef4444;
+}
+
+.apx-mc-attention-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* 状态徽章 */
+.apx-mc-badge {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1.5;
+  border-radius: 8px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+}
+
+.apx-mc-b-green { color: #22c55e; }
+.apx-mc-b-orange { color: #f59e0b; }
+.apx-mc-b-red { color: #ef4444; }
+.apx-mc-b-gray { color: rgba(128, 128, 128, 0.8); }
+
+/* 空态 */
+.apx-mc-empty {
+  margin-top: 4px;
+  padding: 8px 6px;
+  opacity: 0.6;
+  border: 1px dashed rgba(128, 128, 128, 0.3);
+  border-radius: 6px;
+  text-align: center;
+}
+
+/* 子代理行 */
+.apx-mc-subrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+/* 辅助说明与脚注 */
+.apx-mc-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  opacity: 0.55;
+}
+
+.apx-mc-footnote {
+  margin-top: 12px;
+  font-size: 11px;
+  opacity: 0.55;
+}

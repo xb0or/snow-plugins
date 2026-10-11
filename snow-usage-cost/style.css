@@ -1,0 +1,361 @@
+/* 成本核算看板 — 面板样式，选择器统一前缀 .ucx-
+   配色策略：文字颜色一律 inherit 跟随宿主面板，辅助文字用 opacity 压暗；
+   边框/底色用中性 rgba，深浅主题均可读。强调色少量使用。 */
+
+.ucx-root {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: inherit;
+  font-size: 13px;
+}
+
+/* ---------- 头部 ---------- */
+.ucx-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ucx-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ucx-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ucx-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid rgba(127, 127, 127, 0.38);
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ucx-btn:hover {
+  background: rgba(127, 127, 127, 0.18);
+}
+
+.ucx-range-btn.ucx-active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+}
+
+.ucx-icon-btn {
+  padding: 5px 7px;
+}
+
+.ucx-primary {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+}
+
+.ucx-primary:hover {
+  background: #2563eb;
+}
+
+.ucx-small {
+  padding: 3px 7px;
+  font-size: 11px;
+}
+
+/* ---------- 汇总卡 ---------- */
+.ucx-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.ucx-card {
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(127, 127, 127, 0.07);
+}
+
+.ucx-card-label {
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.ucx-card-value {
+  margin-top: 3px;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ucx-card-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.ucx-card-accent .ucx-card-value {
+  color: #22c55e;
+}
+
+.ucx-card-danger .ucx-card-value {
+  color: #ef4444;
+}
+
+/* ---------- 区块 / 表格 ---------- */
+.ucx-section {
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(127, 127, 127, 0.05);
+}
+
+.ucx-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.ucx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ucx-table th,
+.ucx-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.24);
+  white-space: nowrap;
+}
+
+.ucx-table th {
+  opacity: 0.8;
+  font-weight: 600;
+}
+
+.ucx-table tbody tr:hover {
+  background: rgba(127, 127, 127, 0.1);
+}
+
+.ucx-model-cell {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ucx-price-src {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  border-radius: 8px;
+  font-size: 10px;
+  opacity: 0.75;
+  vertical-align: 1px;
+}
+
+.ucx-right {
+  text-align: right !important;
+}
+
+.ucx-cost {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.ucx-total-row td {
+  border-top: 2px solid rgba(127, 127, 127, 0.45);
+  font-weight: 700;
+}
+
+/* ---------- 每日条形图 ---------- */
+.ucx-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ucx-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 120px;
+}
+
+.ucx-chart-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+.ucx-chart-bar {
+  width: 100%;
+  background: #3b82f6;
+  border-radius: 2px 2px 0 0;
+  min-height: 0;
+  transition: height 0.2s;
+}
+
+.ucx-chart-bar-empty {
+  background: rgba(127, 127, 127, 0.3);
+}
+
+.ucx-chart-labels {
+  display: flex;
+  gap: 2px;
+}
+
+.ucx-chart-label {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  font-size: 10px;
+  opacity: 0.72;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ---------- 单价设置 ---------- */
+.ucx-price-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ucx-price-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ucx-currency {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  opacity: 0.85;
+}
+
+.ucx-currency-input,
+.ucx-price-input {
+  padding: 4px 6px;
+  border: 1px solid rgba(127, 127, 127, 0.38);
+  border-radius: 5px;
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+  font-size: 12px;
+}
+
+.ucx-price-input {
+  width: 76px;
+}
+
+.ucx-price-default-row td {
+  opacity: 0.8;
+}
+
+/* ---------- 状态 / 提示 / 导出 ---------- */
+.ucx-state {
+  padding: 14px;
+  border: 1px dashed rgba(127, 127, 127, 0.4);
+  border-radius: 8px;
+  text-align: center;
+  opacity: 0.75;
+}
+
+.ucx-err {
+  color: #ef4444;
+  opacity: 1;
+}
+
+.ucx-ok {
+  color: #22c55e;
+  opacity: 1;
+}
+
+.ucx-muted {
+  opacity: 0.72;
+}
+
+.ucx-updated {
+  font-size: 11px;
+}
+
+.ucx-hint {
+  font-size: 11px;
+  opacity: 0.72;
+  line-height: 1.6;
+}
+
+.ucx-export-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ucx-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.ucx-footer {
+  font-size: 11px;
+  line-height: 1.6;
+  opacity: 0.72;
+  border-top: 1px solid rgba(127, 127, 127, 0.3);
+  padding-top: 8px;
+}
+
+/* ---------- 移动端适配 ---------- */
+@media (max-width: 640px) {
+  .ucx-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .ucx-card-value {
+    font-size: 15px;
+  }
+
+  .ucx-section {
+    padding: 10px;
+  }
+
+  .ucx-table th,
+  .ucx-table td {
+    padding: 5px 6px;
+    font-size: 11px;
+  }
+
+  .ucx-model-cell {
+    max-width: 120px;
+  }
+
+  .ucx-chart-bars {
+    height: 90px;
+    gap: 1px;
+  }
+}

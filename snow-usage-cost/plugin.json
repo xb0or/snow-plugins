@@ -1,0 +1,30 @@
+{
+  "id": "com.seagull.usage-cost",
+  "author": "kedou",
+  "version": "1.0.0",
+  "entry": "index.js",
+  "name": {
+    "default": "Usage Cost",
+    "zh-CN": "成本核算看板"
+  },
+  "description": {
+    "default": "Estimate API usage cost from usage statistics with configurable per-model prices.",
+    "zh-CN": "读取使用量统计，按可配置的单价估算各模型 API 使用成本，支持汇总看板、每日成本条形图与 CSV 导出。"
+  },
+  "icon": "lucide:CircleDollarSign",
+  "styles": ["style.css"],
+  "panels": [
+    {
+      "id": "main",
+      "title": {
+        "default": "Usage Cost",
+        "zh-CN": "成本核算看板"
+      },
+      "icon": "lucide:CircleDollarSign"
+    }
+  ],
+  "privacy": {
+    "scopes": ["usage"],
+    "note": "读取用量统计（token 与请求数）用于本地成本核算；单价表保存在插件本地存储，不上传。"
+  }
+}
