@@ -46,6 +46,165 @@ const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const COLLAPSED_CATS = 8;
 const PAGE_SIZE = 80;
 
+/* Embedded translations (kept in sync with locales/*.json).
+ * The host locale matcher may miss variants like "zh_CN" / "zh-Hans" and fall
+ * back to the default (English) pack; we therefore resolve the language
+ * ourselves and only use api.t as a last-resort fallback. */
+const EMBEDDED_MESSAGES = {
+  "zh-CN": {
+    "header.title": "技能商店",
+    "search.placeholder": "搜索技能名 / 描述 / 分类",
+    "scope.title": "安装位置",
+    "scope.label": "装到",
+    "scope.global": "全局",
+    "scope.project": "项目",
+    "tab.official": "官方技能",
+    "tab.local": "本地技能",
+    "tab.community": "社区源",
+    "cat.all": "全部",
+    "cat.more": "更多 +{{count}}",
+    "cat.less": "收起",
+    "page.more": "加载更多（还有 {{count}} 条）",
+    "btn.refresh": "刷新",
+    "btn.install": "安装",
+    "btn.installing": "安装中...",
+    "btn.askAi": "让 AI 安装",
+    "btn.askAiHint": "推荐方式：由 AI 按内置文档安装，对子目录仓库的兼容性最好",
+    "btn.detail": "详情",
+    "badge.installed": "已安装",
+    "badge.builtin": "内置",
+    "meta.discovered": "发现于",
+    "state.loading": "正在加载技能索引...",
+    "state.empty": "没有匹配的技能",
+    "state.error": "加载失败",
+    "state.retry": "重试",
+    "toast.installOk": "已提交安装：{{name}}",
+    "toast.installFail": "安装失败：{{msg}}（可改用「让 AI 安装」）",
+    "toast.actionMissing": "当前应用版本不支持一键安装，请改用「让 AI 安装」",
+    "toast.inserted": "安装请求已写入输入框，发送即可让 AI 安装",
+    "toast.insertFail": "写入输入框失败：{{msg}}",
+    "toast.partial": "部分数据源加载失败：{{msg}}",
+    "aiInstallPromptGlobal":
+      "请把这个技能安装到 Snow App 全局技能目录：{{name}}\n仓库地址：{{url}}\n请先加载 snow-app-docs 技能，再按文档用 config-set 的 skills 域以 GitHub 安装方式安装并启用它（location 用全局）。",
+    "aiInstallPromptProject":
+      "请把这个技能安装到 Snow App 当前项目的技能目录：{{name}}\n仓库地址：{{url}}\n请先加载 snow-app-docs 技能，再按文档用 config-set 的 skills 域以 GitHub 安装方式安装并启用它（location 用项目级）。",
+    "log.show": "更新日志",
+    "log.hide": "收起日志",
+    "footer.updated": "官方索引更新",
+    "disclaimer":
+      "免责声明：本面板仅为技能索引聚合，不代表对任何 SKILL 行为的安全背书；SKILL 索引从各种公开源自动抓取、技能本体由各作者仓库直接提供，请在安装前自行审查判断。",
+  },
+  "zh-TW": {
+    "header.title": "技能商店",
+    "search.placeholder": "搜尋技能名 / 描述 / 分類",
+    "scope.title": "安裝位置",
+    "scope.label": "裝到",
+    "scope.global": "全域",
+    "scope.project": "專案",
+    "tab.official": "官方技能",
+    "tab.local": "本地技能",
+    "tab.community": "社群源",
+    "cat.all": "全部",
+    "cat.more": "更多 +{{count}}",
+    "cat.less": "收起",
+    "page.more": "載入更多（還有 {{count}} 條）",
+    "btn.refresh": "重新整理",
+    "btn.install": "安裝",
+    "btn.installing": "安裝中...",
+    "btn.askAi": "讓 AI 安裝",
+    "btn.askAiHint": "推薦方式：由 AI 按內建文件安裝，對子目錄倉庫的相容性最好",
+    "btn.detail": "詳情",
+    "badge.installed": "已安裝",
+    "badge.builtin": "內建",
+    "meta.discovered": "發現於",
+    "state.loading": "正在載入技能索引...",
+    "state.empty": "沒有符合的技能",
+    "state.error": "載入失敗",
+    "state.retry": "重試",
+    "toast.installOk": "已提交安裝：{{name}}",
+    "toast.installFail": "安裝失敗：{{msg}}（可改用「讓 AI 安裝」）",
+    "toast.actionMissing": "目前應用版本不支援一鍵安裝，請改用「讓 AI 安裝」",
+    "toast.inserted": "安裝請求已寫入輸入框，送出即可讓 AI 安裝",
+    "toast.insertFail": "寫入輸入框失敗：{{msg}}",
+    "toast.partial": "部分資料來源載入失敗：{{msg}}",
+    "aiInstallPromptGlobal":
+      "請把這個技能安裝到 Snow App 全域技能目錄：{{name}}\n倉庫地址：{{url}}\n請先載入 snow-app-docs 技能，再按文件用 config-set 的 skills 域以 GitHub 安裝方式安裝並啟用它（location 用全域）。",
+    "aiInstallPromptProject":
+      "請把這個技能安裝到 Snow App 目前專案的技能目錄：{{name}}\n倉庫地址：{{url}}\n請先載入 snow-app-docs 技能，再按文件用 config-set 的 skills 域以 GitHub 安裝方式安裝並啟用它（location 用專案級）。",
+    "log.show": "更新日誌",
+    "log.hide": "收起日誌",
+    "footer.updated": "官方索引更新",
+    "disclaimer":
+      "免責聲明：本面板僅為技能索引聚合，不代表對任何 SKILL 行為的安全背書；SKILL 索引從各種公開源自動抓取、技能本體由各作者倉庫直接提供，請在安裝前自行審查判斷。",
+  },
+  en: {
+    "header.title": "Skill Store",
+    "search.placeholder": "Search skill name / description / category",
+    "scope.title": "Install location",
+    "scope.label": "To",
+    "scope.global": "Global",
+    "scope.project": "Project",
+    "tab.official": "Official skills",
+    "tab.local": "Local skills",
+    "tab.community": "Community sources",
+    "cat.all": "All",
+    "cat.more": "More +{{count}}",
+    "cat.less": "Less",
+    "page.more": "Load more ({{count}} remaining)",
+    "btn.refresh": "Refresh",
+    "btn.install": "Install",
+    "btn.installing": "Installing...",
+    "btn.askAi": "Ask AI to install",
+    "btn.askAiHint":
+      "Recommended: the AI installs it per the built-in docs; best compatibility for monorepo skills",
+    "btn.detail": "Details",
+    "badge.installed": "Installed",
+    "badge.builtin": "Built-in",
+    "meta.discovered": "Discovered",
+    "state.loading": "Loading skill index...",
+    "state.empty": "No matching skills",
+    "state.error": "Failed to load",
+    "state.retry": "Retry",
+    "toast.installOk": "Install submitted: {{name}}",
+    "toast.installFail": "Install failed: {{msg}} (try \"Ask AI to install\")",
+    "toast.actionMissing":
+      "One-click install is not supported by this app version, use \"Ask AI to install\"",
+    "toast.inserted": "Install request inserted into the chat input, send it to let the AI install",
+    "toast.insertFail": "Failed to insert into chat input: {{msg}}",
+    "toast.partial": "Some data sources failed to load: {{msg}}",
+    "aiInstallPromptGlobal":
+      "Please install this skill into the Snow App global skill directory: {{name}}\nRepository: {{url}}\nLoad the snow-app-docs skill first, then install and enable it via the config-set skills domain GitHub install (global location) as documented.",
+    "aiInstallPromptProject":
+      "Please install this skill into the Snow App current project skill directory: {{name}}\nRepository: {{url}}\nLoad the snow-app-docs skill first, then install and enable it via the config-set skills domain GitHub install (project location) as documented.",
+    "log.show": "Changelog",
+    "log.hide": "Hide changelog",
+    "footer.updated": "Official index updated",
+    "disclaimer":
+      "Disclaimer: this panel is a skill index aggregator only and does not endorse the behavior of any skill. Skill entries are automatically collected from various public sources and served directly by their authors' repositories; review each skill yourself before installing.",
+  },
+};
+
+function pickEmbeddedMessages(api) {
+  const raw = String((api && api.locale) || "")
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (raw.indexOf("zh") === 0) {
+    if (/tw|hk|mo|hant/.test(raw)) return EMBEDDED_MESSAGES["zh-TW"];
+    return EMBEDDED_MESSAGES["zh-CN"];
+  }
+  return EMBEDDED_MESSAGES.en;
+}
+
+function interpolate(text, values) {
+  let out = String(text);
+  if (values) {
+    for (const k of Object.keys(values)) {
+      out = out.split("{{" + k + "}}").join(String(values[k]));
+    }
+  }
+  return out;
+}
+
 async function netFetchJson(api, urls) {
   let lastError = "";
   for (const url of urls) {
@@ -240,8 +399,16 @@ export default function SkillStorePanel(props) {
   const api = (props && props.api) || (window.SnowAppPlugin && window.SnowAppPlugin.api);
   const h = React.createElement;
 
+  const embeddedMessages = pickEmbeddedMessages(api);
   const t = function (key, options) {
-    return api.t(key, options || {});
+    const opts = options || {};
+    if (Object.prototype.hasOwnProperty.call(embeddedMessages, key)) {
+      return interpolate(embeddedMessages[key], opts.values);
+    }
+    if (typeof api.t === "function") {
+      return api.t(key, opts);
+    }
+    return opts.defaultValue !== undefined ? opts.defaultValue : key;
   };
 
   const [tab, setTab] = React.useState("official");

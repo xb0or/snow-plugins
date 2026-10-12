@@ -2,16 +2,41 @@
   "id": "com.seagull.skill-store",
   "name": {
     "default": "Skill Store",
+    "en": "Skill Store",
+    "zh": "技能商店",
     "zh-CN": "技能商店",
+    "zh-cn": "技能商店",
+    "zh_CN": "技能商店",
+    "zh-Hans": "技能商店",
+    "zh-Hans-CN": "技能商店",
+    "zh-SG": "技能商店",
     "zh-TW": "技能商店",
-    "en": "Skill Store"
+    "zh-tw": "技能商店",
+    "zh_TW": "技能商店",
+    "zh-Hant": "技能商店",
+    "zh-Hant-TW": "技能商店",
+    "zh-HK": "技能商店",
+    "zh-MO": "技能商店"
   },
   "description": {
     "default": "Browse and install community agent skills from aggregated public skill indexes (incl. skills.sh), as a Snow App panel.",
+    "en": "Browse and install community agent skills from aggregated public skill indexes (incl. skills.sh), as a Snow App panel.",
+    "zh": "浏览聚合自公开源的社区技能索引（官方技能 / 本地技能 / 社区技能源 / skills.sh），支持搜索、分类过滤、全局或项目级一键安装或让 AI 代装到 Snow App。",
     "zh-CN": "浏览聚合自公开源的社区技能索引（官方技能 / 本地技能 / 社区技能源 / skills.sh），支持搜索、分类过滤、全局或项目级一键安装或让 AI 代装到 Snow App。",
-    "zh-TW": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。"
+    "zh-cn": "浏览聚合自公开源的社区技能索引（官方技能 / 本地技能 / 社区技能源 / skills.sh），支持搜索、分类过滤、全局或项目级一键安装或让 AI 代装到 Snow App。",
+    "zh_CN": "浏览聚合自公开源的社区技能索引（官方技能 / 本地技能 / 社区技能源 / skills.sh），支持搜索、分类过滤、全局或项目级一键安装或让 AI 代装到 Snow App。",
+    "zh-Hans": "浏览聚合自公开源的社区技能索引（官方技能 / 本地技能 / 社区技能源 / skills.sh），支持搜索、分类过滤、全局或项目级一键安装或让 AI 代装到 Snow App。",
+    "zh-Hans-CN": "浏览聚合自公开源的社区技能索引（官方技能 / 本地技能 / 社区技能源 / skills.sh），支持搜索、分类过滤、全局或项目级一键安装或让 AI 代装到 Snow App。",
+    "zh-SG": "浏览聚合自公开源的社区技能索引（官方技能 / 本地技能 / 社区技能源 / skills.sh），支持搜索、分类过滤、全局或项目级一键安装或让 AI 代装到 Snow App。",
+    "zh-TW": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。",
+    "zh-tw": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。",
+    "zh_TW": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。",
+    "zh-Hant": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。",
+    "zh-Hant-TW": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。",
+    "zh-HK": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。",
+    "zh-MO": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。"
   },
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "kedou",
   "license": "MIT",
   "icon": "lucide:Store",
@@ -22,9 +47,21 @@
       "id": "store",
       "title": {
         "default": "Skill Store",
+        "en": "Skill Store",
+        "zh": "技能商店",
         "zh-CN": "技能商店",
+        "zh-cn": "技能商店",
+        "zh_CN": "技能商店",
+        "zh-Hans": "技能商店",
+        "zh-Hans-CN": "技能商店",
+        "zh-SG": "技能商店",
         "zh-TW": "技能商店",
-        "en": "Skill Store"
+        "zh-tw": "技能商店",
+        "zh_TW": "技能商店",
+        "zh-Hant": "技能商店",
+        "zh-Hant-TW": "技能商店",
+        "zh-HK": "技能商店",
+        "zh-MO": "技能商店"
       },
       "icon": "lucide:Store"
     }
@@ -34,7 +71,18 @@
     "en": "locales/en.json",
     "zh": "locales/zh-CN.json",
     "zh-CN": "locales/zh-CN.json",
-    "zh-TW": "locales/zh-TW.json"
+    "zh-cn": "locales/zh-CN.json",
+    "zh_CN": "locales/zh-CN.json",
+    "zh-Hans": "locales/zh-CN.json",
+    "zh-Hans-CN": "locales/zh-CN.json",
+    "zh-SG": "locales/zh-CN.json",
+    "zh-TW": "locales/zh-TW.json",
+    "zh-tw": "locales/zh-TW.json",
+    "zh_TW": "locales/zh-TW.json",
+    "zh-Hant": "locales/zh-TW.json",
+    "zh-Hant-TW": "locales/zh-TW.json",
+    "zh-HK": "locales/zh-TW.json",
+    "zh-MO": "locales/zh-TW.json"
   },
   "styles": ["style.css"],
   "privacy": {
