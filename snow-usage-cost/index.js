@@ -294,7 +294,7 @@ export default function UsageCostPanel({ api }) {
       }
     }
     const b = {};
-    for (const c of CATS) b[c.key] = acc[c.key] > 0 ? cost[c.key] / acc[c.key] : 0;
+    for (const c of CATS) b[c.key] = acc[c.key] > 0 ? cost[c.key] / acc[c.key] / 1e6 : 0;
     return b;
   })();
 
@@ -631,6 +631,7 @@ export default function UsageCostPanel({ api }) {
       ),
       saveMsg ? h("span", { className: /^(已保存|已同步)/.test(saveMsg) ? "ucx-ok" : "ucx-err" }, saveMsg) : null
     ),
+    h("div", { className: "ucx-table-wrap" },
     h("table", { className: "ucx-table" },
       h("thead", null,
         h("tr", null,
@@ -660,6 +661,7 @@ export default function UsageCostPanel({ api }) {
           );
         })
       )
+    )
     ),
     h("div", { className: "ucx-hint" }, "单价单位：每 100 万 token。未自定义的模型按内置价计费：GLM-5.3、DeepSeek V4、Qwen3.8-Max 为官方刊例核实价；gpt-6 系（astra / sol / luna）与 claude fable 系为 OpenRouter 实时价按汇率折算；其余为估算，请按实际账单校准；逐行输入后点击保存生效。")
   );
@@ -763,7 +765,7 @@ export default function UsageCostPanel({ api }) {
     /* 模型成本表 */
     hasData && modelRows.length ? h("div", { className: "ucx-section" },
       h("div", { className: "ucx-section-title" }, icon("Table2", 14), "模型成本（按成本降序）"),
-      costTable
+      h("div", { className: "ucx-table-wrap" }, costTable)
     ) : null,
 
     /* 导出 */

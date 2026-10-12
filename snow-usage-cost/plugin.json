@@ -1,7 +1,7 @@
 {
   "id": "com.seagull.usage-cost",
   "author": "kedou",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "entry": "index.js",
   "name": {
     "default": "Usage Cost",

@@ -8,6 +8,7 @@
   gap: 14px;
   color: inherit;
   font-size: 13px;
+  min-width: 0;
 }
 
 /* ---------- 头部 ---------- */
@@ -123,6 +124,7 @@
   border-radius: 8px;
   padding: 12px;
   background: rgba(127, 127, 127, 0.05);
+  min-width: 0;
 }
 
 .ucx-section-title {
@@ -131,6 +133,11 @@
   gap: 6px;
   font-weight: 700;
   margin-bottom: 10px;
+}
+
+/* 窄面板下表格区域自身横向滚动，不撑开卡片与面板 */
+.ucx-table-wrap {
+  overflow-x: auto;
 }
 
 .ucx-table {
