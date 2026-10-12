@@ -1,0 +1,460 @@
+/* Skill Store plugin styles — all selectors prefixed with .skstore */
+
+.skstore {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  font-size: 13px;
+  color: var(--sk-text, inherit);
+}
+
+.skstore-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--sk-border, rgba(128, 128, 128, 0.25));
+  flex-shrink: 0;
+}
+
+.skstore-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skstore-title-row svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.skstore-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.skstore-title-row a {
+  margin-left: auto;
+  font-size: 12px;
+  opacity: 0.7;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.skstore-title-row a:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.skstore-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.skstore-search {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--sk-border, rgba(128, 128, 128, 0.3));
+  background: var(--sk-bg, rgba(128, 128, 128, 0.08));
+  color: inherit;
+  outline: none;
+}
+
+.skstore-search:focus {
+  border-color: var(--sk-accent, rgba(128, 128, 128, 0.6));
+}
+
+.skstore-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.skstore-tab {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  border: 1px solid var(--sk-border, rgba(128, 128, 128, 0.3));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.skstore-tab.active {
+  background: var(--sk-accent, rgba(128, 128, 128, 0.35));
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.skstore-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 2px;
+  flex-shrink: 0;
+}
+
+.skstore-cat {
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 999px;
+  border: 1px solid var(--sk-border, rgba(128, 128, 128, 0.25));
+  background: transparent;
+  color: inherit;
+  opacity: 0.8;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.skstore-cat.active {
+  opacity: 1;
+  background: var(--sk-bg, rgba(128, 128, 128, 0.15));
+  border-color: var(--sk-accent, rgba(128, 128, 128, 0.5));
+  font-weight: 600;
+}
+
+.skstore-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skstore-state {
+  padding: 24px 8px;
+  text-align: center;
+  opacity: 0.65;
+  font-size: 12px;
+}
+
+.skstore-state.error {
+  opacity: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  word-break: break-all;
+}
+
+.skstore-card {
+  border: 1px solid var(--sk-border, rgba(128, 128, 128, 0.22));
+  border-radius: 8px;
+  background: var(--sk-card, rgba(128, 128, 128, 0.05));
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skstore-card:hover {
+  background: var(--sk-card-hover, rgba(128, 128, 128, 0.1));
+}
+
+.skstore-card.is-installed {
+  border-color: var(--sk-accent, rgba(128, 128, 128, 0.4));
+}
+
+.skstore-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skstore-name {
+  font-weight: 600;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skstore-rating {
+  font-size: 11px;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.skstore-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10.5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--sk-accent, rgba(128, 128, 128, 0.3));
+  color: inherit;
+  font-weight: 600;
+}
+
+.skstore-desc {
+  font-size: 12px;
+  opacity: 0.8;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.skstore-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.skstore-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--sk-border, rgba(128, 128, 128, 0.25));
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.skstore-src {
+  opacity: 0.55;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skstore-builtin {
+  opacity: 0.6;
+  font-size: 10.5px;
+  border-radius: 4px;
+  padding: 0 4px;
+  border: 1px dashed var(--sk-border, rgba(128, 128, 128, 0.35));
+  white-space: nowrap;
+}
+
+.skstore-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.skstore-btn {
+  padding: 3px 10px;
+  font-size: 11.5px;
+  border-radius: 6px;
+  border: 1px solid var(--sk-border, rgba(128, 128, 128, 0.3));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.skstore-btn:hover:not(:disabled) {
+  background: var(--sk-bg, rgba(128, 128, 128, 0.12));
+}
+
+.skstore-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.skstore-btn.primary {
+  background: var(--sk-accent, rgba(128, 128, 128, 0.35));
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.skstore-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+/* v1.3.1: recommended install path (ask AI) */
+.skstore-btn.recommended {
+  background: var(--sk-green-bg, rgba(52, 168, 83, 0.9));
+  color: var(--sk-green-text, #ffffff);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.skstore-btn.recommended:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.skstore-btn.link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.8;
+}
+
+.skstore-btn.link:hover {
+  opacity: 1;
+}
+
+.skstore-log {
+  margin-top: 10px;
+  border-top: 1px dashed var(--sk-border, rgba(128, 128, 128, 0.25));
+  padding-top: 8px;
+}
+
+.skstore-log-toggle {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 11.5px;
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.skstore-log-toggle:hover {
+  opacity: 1;
+}
+
+.skstore-log-body {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skstore-log-item {
+  font-size: 11.5px;
+  opacity: 0.8;
+}
+
+.skstore-log-date {
+  font-weight: 600;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.skstore-log-item ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skstore-footer {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 11px;
+  opacity: 0.6;
+  border-top: 1px solid var(--sk-border, rgba(128, 128, 128, 0.2));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skstore-footer a {
+  color: inherit;
+}
+
+.skstore-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: var(--sk-card, rgba(60, 60, 60, 0.95));
+  border: 1px solid var(--sk-border, rgba(128, 128, 128, 0.35));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  z-index: 10;
+  word-break: break-all;
+}
+
+.skstore-toast.ok {
+  border-color: rgba(80, 200, 120, 0.6);
+}
+
+.skstore-toast.warn {
+  border-color: rgba(230, 180, 60, 0.6);
+}
+
+.skstore-toast.error {
+  border-color: rgba(220, 90, 90, 0.6);
+}
+
+/* v1.1: install location segmented control */
+.skstore-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.skstore-scope-label {
+  font-size: 11px;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.skstore-scope-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--sk-border, rgba(128, 128, 128, 0.3));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.skstore-scope-btn.active {
+  background: var(--sk-accent, rgba(128, 128, 128, 0.35));
+  border-color: transparent;
+  font-weight: 600;
+}
+
+/* v1.1: category collapse toggle + load-more */
+.skstore-cat.more-toggle {
+  border-style: dashed;
+  opacity: 0.9;
+}
+
+.skstore-more {
+  align-self: center;
+  margin-top: 4px;
+  padding: 4px 16px;
+  font-size: 11.5px;
+  border-radius: 6px;
+  border: 1px dashed var(--sk-border, rgba(128, 128, 128, 0.35));
+  background: transparent;
+  color: inherit;
+  opacity: 0.85;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.skstore-more:hover {
+  opacity: 1;
+  background: var(--sk-bg, rgba(128, 128, 128, 0.1));
+}
+
+/* v1.1: footer meta line + disclaimer */
+.skstore-footer-meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.skstore-disclaimer {
+  margin-top: 2px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  opacity: 0.55;
+  white-space: normal;
+  display: block;
+}
+
