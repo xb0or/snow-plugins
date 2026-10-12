@@ -27,6 +27,7 @@
   "filter.allProjects": "All projects",
   "filter.byProfile": "Filter by API profile",
   "filter.byProject": "Filter by project",
+  "filter.profileReset": "That profile has no records under the current project; reset to All profiles.",
 
   "state.loading": "Loading usage data...",
   "state.empty": "No usage data in the selected range.",
@@ -44,6 +45,7 @@
   "chart.dailyCost": "Daily cost",
   "chart.tip": "{{date}} | Cost {{cost}} | Requests {{requests}} | Errors {{errors}}",
   "chart.spanHint": "Selected range is {{days}} days: daily detail returns at most 90 rows (from the earliest date); the chart may not cover the full range.",
+  "chart.truncatedHint": "Filtered by project, totals are aggregated from records and hit the per-run cap (40000 rows); totals and chart may not cover the full range.",
   "chart.zeroHint": "Daily costs are all 0 under current prices; set unit prices below first.",
 
   "table.sectionTitle": "Model cost (descending)",
@@ -115,5 +117,7 @@
   "footer.text": "Cost basis: non-cached input = totalInputTokens - totalCacheReadInputTokens (floored at 0); cache read = totalCacheReadInputTokens; cache write = totalCacheCreationInputTokens; output = totalOutputTokens; cost = tokens / 1,000,000 x unit price (prices per 1M tokens, currency symbol configurable). The daily/models dimensions have no effective split, so costs are approximate; daily cost is apportioned by each token category's blended full-period price and may differ slightly from the per-model total. Data comes from the usage metadata domain, polled every 5 seconds. Time filtering follows the official usage page convention (start 00:00:00 ~ end 23:59:59), with presets today / yesterday / last 7 days / last 30 days / this month / last month / custom range plus profile and project filters; filter state is persisted in plugin-local storage. Models without custom prices are billed at built-in estimates for reference only — calibrate them in Unit Price Settings.",
 
   "log.readPrices": "Failed to read price settings:",
-  "log.readFilter": "Failed to read filter settings:"
+  "log.readFilter": "Failed to read filter settings:",
+  "log.readFilters": "Failed to read project/profile list:",
+  "log.readDirProfiles": "Failed to read project profile list:"
 }

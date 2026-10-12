@@ -17,6 +17,7 @@
 const PRICES_KEY = "prices";
 const FILTER_KEY = "filter";
 const POLL_MS = 5000;
+const PROJECTS_POLL_MS = 60000;
 const CATS = [
   { key: "nonCachedInput", labelKey: "cat.nonCachedInput", label: "非缓存输入" },
   { key: "cacheRead", labelKey: "cat.cacheRead", label: "缓存读" },
@@ -81,6 +82,30 @@ function h(tag, props) {
 function icon(name, size) {
   const C = window.SnowAppPlugin.icons && window.SnowAppPlugin.icons[name];
   return C ? window.SnowAppPlugin.React.createElement(C, { size: size || 14 }) : null;
+}
+
+/** 元素宽度（ResizeObserver 感知面板宽度变化；不可用时为 0，表示「未知」，由调用方按默认密度处理） */
+function useElementWidth() {
+  const { useState, useEffect, useRef } = window.SnowAppPlugin.React;
+  const ref = useRef(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const read = () => {
+      const w = el.clientWidth || 0;
+      /* 仅在宽度实际变化时更新，避免 ResizeObserver 抖动引发多余渲染 */
+      setWidth((prev) => (prev === w ? prev : w));
+    };
+    read();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return [ref, width];
 }
 
 function clamp0(n) {
@@ -226,6 +251,277 @@ function normModelName(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+/* 项目筛选聚合（修复：宿主 usage 域的 directoryId 只作用于 records，summary/daily/models 均不接收，
+   故按项目筛选时改由 records 聚合出 summary/daily/models，口径与宿主 SQL 对齐）：
+   - 错误口径：宿主为 status = 'error'（严格），records.status 同源，直接比对
+   - 非缓存输入：宿主 summary 为 SUM(input_tokens) - SUM(cache_read_input_tokens)（下限 0），按记录逐条截断
+   - 成本口径：沿用本插件 models 明细 + 价格表的计算方式，保证与未筛选时一致 */
+const RECORD_STATUS_ERROR = "error";
+
+/** 逐条记录聚合（records 已按 created_at DESC 返回，同一天记录相邻） */
+function aggregateUsageRecords(records) {
+  const empty = {
+    totalRequests: 0, errorRequests: 0, totalInputTokens: 0, totalOutputTokens: 0,
+    totalCacheCreationInputTokens: 0, totalCacheReadInputTokens: 0,
+  };
+  const summary = { ...empty };
+  const byDate = new Map();
+  const byModel = new Map();
+
+  for (const r of records) {
+    const rec = r || {};
+    const input = clamp0(rec.inputTokens);
+    const cacheRead = clamp0(rec.cacheReadInputTokens);
+    const cacheWrite = clamp0(rec.cacheCreationInputTokens);
+    const output = clamp0(rec.outputTokens);
+    const isError = String(rec.status || "") === RECORD_STATUS_ERROR ? 1 : 0;
+    const date = String(rec.createdAt || "").slice(0, 10);
+    const model = String(rec.model || "");
+
+    summary.totalRequests += 1;
+    summary.errorRequests += isError;
+    summary.totalInputTokens += input;
+    summary.totalOutputTokens += output;
+    summary.totalCacheCreationInputTokens += cacheWrite;
+    summary.totalCacheReadInputTokens += cacheRead;
+
+    if (date) {
+      const d = byDate.get(date) || { ...empty, date };
+      d.totalRequests += 1;
+      d.errorRequests += isError;
+      d.totalInputTokens += input;
+      d.totalOutputTokens += output;
+      d.totalCacheCreationInputTokens += cacheWrite;
+      d.totalCacheReadInputTokens += cacheRead;
+      byDate.set(date, d);
+    }
+    if (model) {
+      const m = byModel.get(model) || { ...empty, model };
+      m.totalRequests += 1;
+      m.errorRequests += isError;
+      m.totalInputTokens += input;
+      m.totalOutputTokens += output;
+      m.totalCacheCreationInputTokens += cacheWrite;
+      m.totalCacheReadInputTokens += cacheRead;
+      byModel.set(model, m);
+    }
+  }
+
+  return {
+    summary,
+    daily: Array.from(byDate.values()).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)),
+    models: Array.from(byModel.values()),
+  };
+}
+
+/** 按时间倒序分页拉取 records（records 无时间参数，但按 created_at DESC 排序）：
+    早于 since 即停止翻页；晚于 until 的记录跳过（如「上月」等历史区间，更新的记录需剔除）。
+    返回 { items, truncated }；usage 域被拒绝时抛出带 denied 标记的错误，交由调用方提示。 */
+async function fetchRecordsInRange(api, params, since, until) {
+  const PAGE = 500;
+  const HARD_CAP = 40000; // 安全上限：40000 条约占 7MB 内存，避免异常数据拖垮面板
+  const items = [];
+  let offset = 0;
+  let truncated = false;
+
+  for (;;) {
+    const res = await api.metadata.get(["usage"], { params: { ...params, limit: PAGE, offset } });
+    if (res && res.denied && res.denied.usage) {
+      const err = new Error("usage domain denied");
+      err.deniedUsage = true;
+      throw err;
+    }
+    const usage = res && res.domains && res.domains.usage;
+    const page = usage && usage.records && Array.isArray(usage.records.items) ? usage.records.items : [];
+    if (!page.length) break;
+
+    let reachedBoundary = false;
+    for (const r of page) {
+      const createdAt = String((r && r.createdAt) || "");
+      /* 晚于结束边界：跳过（排序为 DESC，这些记录出现在页面前部） */
+      if (until && createdAt && createdAt > until) continue;
+      /* 早于起始边界：后续记录更早，直接停止 */
+      if (since && createdAt && createdAt < since) { reachedBoundary = true; break; }
+      items.push(r);
+    }
+    if (reachedBoundary) break;
+    if (page.length < PAGE) break; // 已到末尾
+
+    offset += PAGE;
+    if (items.length >= HARD_CAP) { truncated = true; break; }
+  }
+
+  return { items, truncated };
+}
+
+/** 拉取某项目下出现过的档案名（用于按项目收窄档案下拉选项，使「选项 = 可用值」）：
+    records 无 GROUP BY 能力，故分页扫描该项目记录并按出现次数汇总；受 HARD_CAP 限制，超限返回已收集部分。
+    同时返回该项目记录总数（count），供缓存做「数据是否变化」的廉价校验。 */
+async function fetchProjectProfileNames(api, directoryId) {
+  const PAGE = 500;
+  const HARD_CAP = 40000;
+  const counts = new Map();
+  let offset = 0;
+  let scanned = 0;
+  let truncated = false;
+  let total = null;
+
+  for (;;) {
+    const res = await api.metadata.get(["usage"], { params: { directoryId, limit: PAGE, offset } });
+    if (res && res.denied && res.denied.usage) {
+      const err = new Error("usage domain denied");
+      err.deniedUsage = true;
+      throw err;
+    }
+    const usage = res && res.domains && res.domains.usage;
+    const page = usage && usage.records && Array.isArray(usage.records.items) ? usage.records.items : [];
+    if (total === null && usage && usage.records && typeof usage.records.total === "number") {
+      total = usage.records.total;
+    }
+    if (!page.length) break;
+
+    for (const r of page) {
+      const name = String((r && r.apiProfileName) || "").trim();
+      if (name) counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    scanned += page.length;
+    if (page.length < PAGE) break; // 已到末尾
+
+    offset += PAGE;
+    if (scanned >= HARD_CAP) { truncated = true; break; }
+  }
+
+  return {
+    /* 按记录量降序，与宿主 listUsageProfileNames 的排序口径一致 */
+    names: Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).map(([n]) => n),
+    truncated,
+    count: total === null ? scanned : total,
+  };
+}
+
+/* 项目档案名缓存：档案集合是「该项目历史用过的档案」，变化很慢，故按项目缓存并设 TTL。
+   目的：项目筛选下 5s 轮询不再重复全量扫描该项目 records（原先每轮都扫，大项目达 7 页 IPC）。
+   失效条件：TTL 到期、记录总数变化（新增/删除记录后档案名可能变化）、或显式 invalidate。
+   模块级存储：面板重挂载（切标签/重开）后仍可复用，不因组件卸载而失效。 */
+const DIR_PROFILES_TTL_MS = 10 * 60 * 1000; // 10 分钟
+const DIR_PROFILES_CACHE_MAX = 50; // 项目数上限保护，超出时淘汰最旧条目
+const dirProfilesCache = new Map(); // directoryId -> { names, truncated, at, count }
+const dirProfilesInflight = new Map(); // directoryId -> Promise（并发去重）
+
+function getCachedDirProfiles(dir) {
+  const hit = dirProfilesCache.get(dir);
+  if (!hit) return null;
+  if (Date.now() - hit.at > DIR_PROFILES_TTL_MS) {
+    dirProfilesCache.delete(dir);
+    return null;
+  }
+  return hit;
+}
+
+/** 使某项目的档案名缓存失效（用户点「立即刷新」时调用，便于新档案名立刻出现） */
+function invalidateDirProfiles(dir) {
+  if (dir) dirProfilesCache.delete(dir);
+}
+
+function putDirProfilesCache(dir, value) {
+  dirProfilesCache.set(dir, value);
+  if (dirProfilesCache.size > DIR_PROFILES_CACHE_MAX) {
+    /* Map 保持插入顺序，删除最早的条目 */
+    const oldest = dirProfilesCache.keys().next();
+    if (!oldest.done) dirProfilesCache.delete(oldest.value);
+  }
+}
+
+/** 带缓存的档案名拉取。
+    缓存有效期内先用 limit=1 取一次记录总数做廉价校验（1 次 IPC）：
+    总数未变 → 直接复用缓存（不扫描）；总数变化 → 重新全量扫描并更新缓存。 */
+async function fetchProjectProfileNamesCached(api, directoryId) {
+  const hit = getCachedDirProfiles(directoryId);
+  if (hit) {
+    const probe = await api.metadata.get(["usage"], { params: { directoryId, limit: 1, offset: 0 } });
+    const usage = probe && probe.domains && probe.domains.usage;
+    const total = usage && usage.records && typeof usage.records.total === "number" ? usage.records.total : null;
+    /* 校验请求失败或宿主未返回 total：保守复用缓存（避免每轮退化为全量扫描） */
+    if (total === null || total === hit.count) {
+      return { names: hit.names, truncated: hit.truncated };
+    }
+    dirProfilesCache.delete(directoryId); // 数据已变化，丢弃旧缓存
+  }
+
+  const pending = dirProfilesInflight.get(directoryId);
+  if (pending) return pending;
+
+  const p = fetchProjectProfileNames(api, directoryId).then(
+    (res) => {
+      dirProfilesInflight.delete(directoryId);
+      putDirProfilesCache(directoryId, { names: res.names, truncated: res.truncated, at: Date.now(), count: res.count });
+      return res;
+    },
+    (err) => {
+      dirProfilesInflight.delete(directoryId);
+      throw err;
+    }
+  );
+  dirProfilesInflight.set(directoryId, p);
+  return p;
+}
+
+/* ---------- 自定义下拉（issue #4） ----------
+   原生 select 的展开列表由系统渲染，深色主题下选项不可见；
+   改为 button 触发器 + 绝对定位面板结构，配色接入宿主主题 CSS 变量（style.css 兜底回退值）。 */
+function UcxSelect({ value, onChange, options, title }) {
+  const { useState, useRef, useEffect } = window.SnowAppPlugin.React;
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocMouseDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const current = options.find((o) => o.value === value);
+  return h("div", { className: "ucx-select", ref, title },
+    h("button", {
+      type: "button",
+      className: "ucx-select-trigger",
+      onClick: () => setOpen((v) => !v),
+      "aria-haspopup": "listbox",
+      "aria-expanded": open,
+    },
+      h("span", { className: "ucx-select-trigger-label" }, current ? current.label : value),
+      h("span", { className: "ucx-select-trigger-icon" + (open ? " ucx-select-trigger-icon-open" : "") },
+        icon("ChevronDown", 14))
+    ),
+    open
+      ? h("div", { className: "ucx-select-dropdown", role: "listbox" },
+          options.map((o) =>
+            h("div", {
+              key: o.value,
+              className: "ucx-select-item" + (o.value === value ? " ucx-select-item-active" : ""),
+              role: "option",
+              "aria-selected": o.value === value,
+              onClick: () => {
+                setOpen(false);
+                if (o.value !== value) onChange(o.value);
+              },
+            }, o.label)
+          )
+        )
+      : null
+  );
+}
+
 /* ---------- 主组件 ---------- */
 
 export default function UsageCostPanel({ api }) {
@@ -241,11 +537,18 @@ export default function UsageCostPanel({ api }) {
   const [profileFilter, setProfileFilter] = useState("");
   const [dirFilter, setDirFilter] = useState("");
   const [projects, setProjects] = useState([]);
+  const [profileNames, setProfileNames] = useState([]);
+  /* 项目维度的档案名：{ dir, names }；dir 与当前 dirFilter 不一致表示该项目尚未扫描完成（names 为 null） */
+  const [dirProfiles, setDirProfiles] = useState({ dir: "", names: null });
+  const [filterMsg, setFilterMsg] = useState(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [usage, setUsage] = useState(null);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  /* 筛选条件是否已从存储恢复：未恢复前禁止持久化，避免默认值覆盖已保存的筛选（修复 2） */
+  const [hydrated, setHydrated] = useState(false);
 
   const [prices, setPrices] = useState(() => normalizePrices(null, UI_LOCALE));
   const [priceEdit, setPriceEdit] = useState(null); // 字符串态编辑缓冲
@@ -257,6 +560,9 @@ export default function UsageCostPanel({ api }) {
 
   const aliveRef = useRef(true);
   useEffect(() => () => { aliveRef.current = false; }, []);
+
+  /* 图表容器宽度：用于按可用宽度自适应标签密度（修复 4） */
+  const [chartRef, chartWidthPx] = useElementWidth();
 
   /* 价格加载（挂载一次） */
   useEffect(() => {
@@ -286,30 +592,35 @@ export default function UsageCostPanel({ api }) {
       } catch (e) {
         api.log(T("log.readFilter", "读取筛选配置失败:"), e);
       }
-      if (done || !aliveRef.current || !saved) return;
-      const sp = typeof saved.preset === "string" && PRESETS.some((x) => x.key === saved.preset) ? saved.preset : null;
-      const sf = typeof saved.dateFrom === "string" ? saved.dateFrom : "";
-      const st = typeof saved.dateTo === "string" ? saved.dateTo : "";
-      if (sp && sp !== "custom") {
-        setPreset(sp);
-        const r = presetRange(sp, sf, st);
-        setDateFrom(r.from);
-        setDateTo(r.to);
-      } else if (sp === "custom") {
-        setPreset("custom");
-        setDateFrom(sf);
-        setDateTo(st);
+      if (done || !aliveRef.current) return;
+      if (saved) {
+        const sp = typeof saved.preset === "string" && PRESETS.some((x) => x.key === saved.preset) ? saved.preset : null;
+        const sf = typeof saved.dateFrom === "string" ? saved.dateFrom : "";
+        const st = typeof saved.dateTo === "string" ? saved.dateTo : "";
+        if (sp && sp !== "custom") {
+          setPreset(sp);
+          const r = presetRange(sp, sf, st);
+          setDateFrom(r.from);
+          setDateTo(r.to);
+        } else if (sp === "custom") {
+          setPreset("custom");
+          setDateFrom(sf);
+          setDateTo(st);
+        }
+        if (typeof saved.profileFilter === "string") setProfileFilter(saved.profileFilter);
+        if (typeof saved.dirFilter === "string") setDirFilter(saved.dirFilter);
       }
-      if (typeof saved.profileFilter === "string") setProfileFilter(saved.profileFilter);
-      if (typeof saved.dirFilter === "string") setDirFilter(saved.dirFilter);
+      /* 恢复完成（含无存档情形）后才允许持久化，确保首帧默认值不会覆盖已保存的筛选 */
+      setHydrated(true);
     })();
     return () => { done = true; };
   }, [api]);
 
-  /* 筛选条件持久化 */
+  /* 筛选条件持久化（hydrated 为 true 后才写入，避免与恢复 effect 竞态） */
   useEffect(() => {
+    if (!hydrated) return;
     api.storage.setJson(FILTER_KEY, { preset, dateFrom, dateTo, profileFilter, dirFilter }).catch(() => {});
-  }, [api, preset, dateFrom, dateTo, profileFilter, dirFilter]);
+  }, [api, hydrated, preset, dateFrom, dateTo, profileFilter, dirFilter]);
 
   function toEdit(p) {
     const mp = (o) => {
@@ -329,30 +640,46 @@ export default function UsageCostPanel({ api }) {
 
     const pull = async () => {
       const r = presetRange(preset, dateFrom, dateTo);
-      const params = { since: r.from + "T00:00:00", until: r.to + "T23:59:59" };
+      /* since/until 必须用空格分隔的完整时间戳：usage 域经 IPC 直接进入 SQL 字符串比较，
+         DB 中 created_at 为 "YYYY-MM-DD HH:MM:SS"（空格分隔），T 分隔或纯日期都会导致边界丢数据（issue #5） */
+      const since = r.from + " 00:00:00";
+      const until = r.to + " 23:59:59";
+      const params = { since, until };
       if (profileFilter) params.profileName = profileFilter;
-      if (dirFilter) params.directoryId = dirFilter;
       try {
-        const [u, p] = await Promise.all([
-          api.metadata.get(["usage"], { params }),
-          api.metadata.get(["projects"], {}),
-        ]);
-        if (stopped) return;
-        if (u && u.denied && u.denied.usage) {
-          setErrMsg(T("state.denied", "usage 域读取被拒（缺少隐私声明授权），无法展示成本数据。"));
-          setUsage(null);
+        let nextUsage;
+        let nextTruncated = false;
+        if (dirFilter) {
+          /* 按项目筛选：宿主 summary/daily/models 不接受 directoryId，改由 records 聚合，
+             使汇总卡、每日图表、模型成本表与项目筛选保持一致（修复 1） */
+          const aggParams = { ...params, directoryId: dirFilter };
+          const { items, truncated } = await fetchRecordsInRange(api, aggParams, since, until);
+          nextUsage = aggregateUsageRecords(items);
+          nextTruncated = truncated;
         } else {
-          setUsage((u && u.domains && u.domains.usage) || null);
-          setErrMsg(null);
+          const u = await api.metadata.get(["usage"], { params });
+          if (u && u.denied && u.denied.usage) {
+            if (stopped) return;
+            setErrMsg(T("state.denied", "usage 域读取被拒（缺少隐私声明授权），无法展示成本数据。"));
+            setUsage(null);
+            setLoading(false);
+            timer = setTimeout(pull, POLL_MS);
+            return;
+          }
+          nextUsage = (u && u.domains && u.domains.usage) || null;
         }
-        const dirs = p && p.domains && p.domains.projects && Array.isArray(p.domains.projects.directories)
-          ? p.domains.projects.directories
-          : [];
-        setProjects(dirs);
+        if (stopped) return;
+        setUsage(nextUsage);
+        setTruncated(nextTruncated);
+        setErrMsg(null);
         setLastUpdated(new Date());
       } catch (e) {
         if (stopped) return;
-        setErrMsg(T("state.loadError", "读取使用量数据失败：{{error}}", { error: e && e.message ? e.message : String(e) }));
+        if (e && e.deniedUsage) {
+          setErrMsg(T("state.denied", "usage 域读取被拒（缺少隐私声明授权），无法展示成本数据。"));
+        } else {
+          setErrMsg(T("state.loadError", "读取使用量数据失败：{{error}}", { error: e && e.message ? e.message : String(e) }));
+        }
         setUsage(null);
       }
       if (stopped) return;
@@ -367,9 +694,92 @@ export default function UsageCostPanel({ api }) {
     };
   }, [api, preset, dateFrom, dateTo, profileFilter, dirFilter, refreshTick]);
 
+  /* 项目下拉选项 + 档案下拉选项：挂载时拉一次，之后每 60s 刷新
+     （档案名独立于当前筛选，避免按项目筛选时聚合结果把下拉选项收窄） */
+  useEffect(() => {
+    let stopped = false;
+    let timer = null;
+
+    const pullFilters = async () => {
+      try {
+        const [p, u] = await Promise.all([
+          api.metadata.get(["projects"], {}),
+          api.metadata.get(["usage"], {}),
+        ]);
+        if (stopped) return;
+        const dirs = p && p.domains && p.domains.projects && Array.isArray(p.domains.projects.directories)
+          ? p.domains.projects.directories
+          : [];
+        setProjects(dirs);
+        const names = u && u.domains && u.domains.usage && Array.isArray(u.domains.usage.profileNames)
+          ? u.domains.usage.profileNames
+          : [];
+        setProfileNames(names);
+      } catch (e) {
+        if (stopped) return;
+        api.log(T("log.readFilters", "读取项目/档案列表失败:"), e);
+      }
+      if (stopped) return;
+      timer = setTimeout(pullFilters, PROJECTS_POLL_MS);
+    };
+
+    pullFilters();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [api]);
+
+  /* 按项目收窄档案下拉选项（使「选项 = 该项目下真实可用值」）：
+     项目变化或点刷新时读取该项目档案名。缓存有效期内只做一次轻量总数校验（1 次 IPC），
+     总数未变则复用缓存、不重复全量扫描；扫描完成前该项目的选项视为「未知」（names 为 null）。 */
+  useEffect(() => {
+    let stopped = false;
+    if (!dirFilter) {
+      setDirProfiles({ dir: "", names: null });
+      return undefined;
+    }
+    (async () => {
+      try {
+        const { names, truncated } = await fetchProjectProfileNamesCached(api, dirFilter);
+        if (stopped || !aliveRef.current) return;
+        setDirProfiles({ dir: dirFilter, names, truncated });
+      } catch (e) {
+        if (stopped || !aliveRef.current) return;
+        api.log(T("log.readDirProfiles", "读取项目档案列表失败:"), e);
+        setDirProfiles({ dir: dirFilter, names: [] });
+      }
+    })();
+    return () => { stopped = true; };
+  }, [api, dirFilter, refreshTick]);
+
+  /* 项目变化导致已选档案不在新项目可用集合内时，自动重置为「全部档案」并提示（避免误导性空结果） */
+  useEffect(() => {
+    if (!dirFilter || !profileFilter) return;
+    if (dirProfiles.dir !== dirFilter || dirProfiles.names === null) return; // 仍在扫描，先不判定
+    if (dirProfiles.names.indexOf(profileFilter) >= 0) return;
+    setProfileFilter("");
+    setFilterMsg(T("filter.profileReset", "该档案在当前项目下没有记录，已重置为「全部档案」。"));
+  }, [dirFilter, profileFilter, dirProfiles]);
+
+  /* 提示自动消失 */
+  useEffect(() => {
+    if (!filterMsg) return undefined;
+    const t = setTimeout(() => { if (aliveRef.current) setFilterMsg(null); }, 4000);
+    return () => clearTimeout(t);
+  }, [filterMsg]);
+
   /* ---------- 派生数据 ---------- */
 
-  const profileNames = usage && Array.isArray(usage.profileNames) ? usage.profileNames : [];
+  /* 档案下拉选项：
+     - 未选项目：全库档案名（profileNames）
+     - 已选项目且扫描完成：该项目下出现过的档案名（dirProfiles.names）
+     - 已选项目但扫描未完成：回退全库名，避免下拉短暂为空（此时若选中项不适用，由重置 effect 兜底） */
+  const profileOptions = (() => {
+    if (!dirFilter) return profileNames;
+    if (dirProfiles.dir === dirFilter && Array.isArray(dirProfiles.names)) return dirProfiles.names;
+    return profileNames;
+  })();
 
   /* 所选范围天数（含端点），用于超限提示 */
   const spanDays = (() => {
@@ -703,8 +1113,16 @@ export default function UsageCostPanel({ api }) {
   const chart = (() => {
     if (!dailyRows.length) return null;
     const n = dailyRows.length;
-    const labelEvery = Math.max(1, Math.ceil(n / 10));
-    return h("div", { className: "ucx-chart" },
+    /* 标签密度按可用宽度自适应（修复 4）：面板越窄标签越少，保证每个标签有足够空间完整显示 MM-DD。
+       宽度未知（0，如首帧或宿主未提供 ResizeObserver）时按经验值 480px 处理，避免首帧标签过密。
+       每标签按「约 44px 文本宽 + 24px 间隔」估算占位，故取 68px/标签。 */
+    const chartWidth = chartWidthPx > 0 ? chartWidthPx : 480;
+    const maxLabels = Math.max(2, Math.min(9, Math.floor(chartWidth / 68)));
+    const labelEvery = Math.max(1, Math.ceil(n / maxLabels));
+    /* 首尾标签改用最小内缩而非贴边，避免极窄面板下文字被容器裁掉（修复 4） */
+    const edgePadPx = 18;
+    const edgePadPct = Math.min(12, (edgePadPx / chartWidth) * 100).toFixed(3) + "%";
+    return h("div", { className: "ucx-chart", ref: chartRef },
       h("div", { className: "ucx-chart-bars" },
         dailyRows.map((d) => {
           const pct = maxDailyCost > 0 && d.cost > 0 ? Math.max((d.cost / maxDailyCost) * 100, 2) : 0;
@@ -719,12 +1137,18 @@ export default function UsageCostPanel({ api }) {
           );
         })
       ),
+      /* 标签绝对定位于对应柱子中心，不再与柱子等宽排布，杜绝溢出裁剪（issue #6）；
+         首个标签左对齐、末个显示标签右对齐，并保留最小内缩避免贴边被裁（修复 4） */
       h("div", { className: "ucx-chart-labels" },
-        dailyRows.map((d, i) =>
-          h("div", { key: d.date, className: "ucx-chart-label" },
-            i % labelEvery === 0 ? d.date.slice(5) : ""
-          )
-        )
+        dailyRows.map((d, i) => {
+          if (i % labelEvery !== 0) return null;
+          const style = i === 0
+            ? { left: edgePadPct }
+            : i + labelEvery >= n
+              ? { right: edgePadPct }
+              : { left: (((i + 0.5) / n) * 100).toFixed(3) + "%", transform: "translateX(-50%)" };
+          return h("div", { key: d.date, className: "ucx-chart-label", style }, d.date.slice(5));
+        })
       )
     );
   })();
@@ -871,23 +1295,25 @@ export default function UsageCostPanel({ api }) {
       h("div", { className: "ucx-header-actions" },
         h("button", {
           className: "ucx-btn ucx-icon-btn",
-          onClick: () => setRefreshTick((t) => t + 1),
+          onClick: () => {
+            /* 手动刷新：失效当前项目的档案名缓存，使新出现的档案名立即可见 */
+            invalidateDirProfiles(dirFilter);
+            setRefreshTick((t) => t + 1);
+          },
           title: T("header.refresh", "立即刷新"),
         }, icon("RefreshCw", 14)),
         lastUpdated ? h("span", { className: "ucx-muted ucx-updated" }, T("header.updatedAt", "更新于 {{time}}", { time: lastUpdated.toLocaleTimeString(UI_LOCALE) })) : null
       )
     ),
 
-    /* 筛选栏：时间范围下拉 + 自定义起止 + 档案/项目下拉 */
+    /* 筛选栏：时间范围下拉 + 自定义起止 + 档案/项目下拉（自定义下拉组件，issue #4） */
     h("div", { className: "ucx-filter-bar" },
-      h("select", {
-        className: "ucx-select",
+      h(UcxSelect, {
         value: preset,
-        onChange: (e) => applyPreset(e.target.value),
+        onChange: applyPreset,
         title: T("filter.range", "时间范围"),
-      },
-        PRESETS.map((p) => h("option", { key: p.key, value: p.key }, T(p.labelKey, p.label)))
-      ),
+        options: PRESETS.map((p) => ({ value: p.key, label: T(p.labelKey, p.label) })),
+      }),
       h("input", {
         className: "ucx-date-input",
         type: "date",
@@ -905,30 +1331,32 @@ export default function UsageCostPanel({ api }) {
         onChange: (e) => onDateChange("to", e.target.value),
         title: T("filter.dateTo", "结束日期（含，至当日 23:59:59）"),
       }),
-      h("select", {
-        className: "ucx-select",
+      h(UcxSelect, {
         value: profileFilter,
-        onChange: (e) => setProfileFilter(e.target.value),
+        onChange: setProfileFilter,
         title: T("filter.byProfile", "按 API 档案筛选"),
-      },
-        h("option", { value: "" }, T("filter.allProfiles", "全部档案")),
-        profileFilter && profileNames.indexOf(profileFilter) < 0
-          ? h("option", { value: profileFilter }, profileFilter)
-          : null,
-        profileNames.map((n) => h("option", { key: n, value: n }, n))
-      ),
-      h("select", {
-        className: "ucx-select",
+        /* 选项来源：未选项目时为全库档案名；选了项目后收窄为该项目下出现过的档案名（使「选项 = 可用值」） */
+        options: [
+          { value: "", label: T("filter.allProfiles", "全部档案") },
+          ...(profileFilter && profileOptions.indexOf(profileFilter) < 0
+            ? [{ value: profileFilter, label: profileFilter }]
+            : []),
+          ...profileOptions.map((n) => ({ value: n, label: n })),
+        ],
+      }),
+      h(UcxSelect, {
         value: dirFilter,
-        onChange: (e) => setDirFilter(e.target.value),
+        onChange: setDirFilter,
         title: T("filter.byProject", "按项目筛选"),
-      },
-        h("option", { value: "" }, T("filter.allProjects", "全部项目")),
-        dirFilter && !projects.some((d) => d.directoryId === dirFilter)
-          ? h("option", { value: dirFilter }, dirFilter)
-          : null,
-        projects.map((d) => h("option", { key: d.directoryId, value: d.directoryId }, d.name || d.directoryId))
-      )
+        options: [
+          { value: "", label: T("filter.allProjects", "全部项目") },
+          ...(dirFilter && !projects.some((d) => d.directoryId === dirFilter)
+            ? [{ value: dirFilter, label: dirFilter }]
+            : []),
+          ...projects.map((d) => ({ value: d.directoryId, label: d.name || d.directoryId })),
+        ],
+      }),
+      filterMsg ? h("span", { className: "ucx-muted ucx-filter-msg" }, filterMsg) : null
     ),
 
     loading ? h("div", { className: "ucx-state" }, T("state.loading", "加载中，正在读取使用量数据...")) : null,
@@ -949,6 +1377,9 @@ export default function UsageCostPanel({ api }) {
     /* 每日成本条形图 */
     hasData && dailyRows.length ? h("div", { className: "ucx-section" },
       h("div", { className: "ucx-section-title" }, icon("BarChart3", 14), T("chart.dailyCost", "每日成本")),
+      dirFilter && truncated
+        ? h("div", { className: "ucx-hint" }, T("chart.truncatedHint", "项目筛选下按明细聚合，已达单次聚合上限（40000 条），汇总与图表可能未覆盖完整范围。"))
+        : null,
       spanDays > 90 ? h("div", { className: "ucx-hint" }, T("chart.spanHint", "所选范围 {{days}} 天：每日明细最多返回 90 行（自最早日期起），条形图可能不覆盖完整范围。", { days: spanDays })) : null,
       maxDailyCost === 0 ? h("div", { className: "ucx-hint" }, T("chart.zeroHint", "当前价格配置下每日成本均为 0，可先在下方设置单价。")) : null,
       chart
