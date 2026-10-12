@@ -1,7 +1,7 @@
 {
   "id": "com.seagull.usage-cost",
   "author": "kedou",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "entry": "index.js",
   "name": {
     "default": "Usage Cost",
@@ -12,6 +12,10 @@
     "zh-CN": "读取使用量统计，按可配置的单价估算各模型 API 使用成本，支持汇总看板、每日成本条形图与 CSV 导出。"
   },
   "icon": "lucide:CircleDollarSign",
+  "locales": {
+    "en": "locales/en.json",
+    "zh-CN": "locales/zh-CN.json"
+  },
   "styles": ["style.css"],
   "panels": [
     {
