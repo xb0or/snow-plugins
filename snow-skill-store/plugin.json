@@ -11,7 +11,7 @@
     "zh-CN": "浏览聚合自公开源的社区技能索引（官方技能 / 本地技能 / 社区技能源 / skills.sh），支持搜索、分类过滤、全局或项目级一键安装或让 AI 代装到 Snow App。",
     "zh-TW": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。"
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "kedou",
   "license": "MIT",
   "icon": "lucide:Store",
