@@ -471,10 +471,118 @@ async function fetchProjectProfileNamesCached(api, directoryId) {
   return p;
 }
 
+/* ---------- 自绘 tooltip 浮层 ----------
+   原生 title 的弹出框由系统渲染（深色主题下配色不可控），且约 1 秒后才出现；
+   改为「事件委托 + 单例浮层」：元素只需声明 data-ucx-tip="提示文本"，浮层由面板根容器统一托管，
+   即时显示、配色接入宿主主题变量（与下拉浮层同一套视觉语言）。
+   浮层用 position: fixed，避免被 ucx-table-wrap 等 overflow 容器裁剪；pointer-events: none，不干扰点击。 */
+function useUcxTooltip() {
+  const R = window.SnowAppPlugin.React;
+  const { useState, useRef, useEffect } = R;
+  /* useLayoutEffect 缺失时退回 useEffect（只影响浮层首帧定位时机，不影响功能） */
+  const useLayoutEffect = R.useLayoutEffect || R.useEffect;
+  const [tip, setTip] = useState(null); // { text, rect, left, top, place, want, corrected }
+  const layerRef = useRef(null);
+  const hideTimerRef = useRef(null);
+  const activeElRef = useRef(null); // 当前正在提示的元素，避免同一元素内部移动时重复触发
+
+  const findTipEl = (target) => (target && target.closest ? target.closest("[data-ucx-tip]") : null);
+
+  const showFrom = (el) => {
+    const text = el.getAttribute("data-ucx-tip");
+    if (!text) return;
+    if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; }
+    if (activeElRef.current === el) return; // 同一元素（或其子节点间移动）不重算
+    activeElRef.current = el;
+    const rect = el.getBoundingClientRect();
+    setTip({ text, rect, left: rect.left + rect.width / 2, top: rect.bottom + 8, place: "bottom", want: null, corrected: false });
+  };
+
+  /* 隐藏延到下一个任务：若紧接着进入另一个带提示的元素，showFrom 会取消本次隐藏，避免闪烁 */
+  const scheduleHide = () => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      hideTimerRef.current = null;
+      activeElRef.current = null;
+      setTip(null);
+    }, 0);
+  };
+
+  const tooltipProps = {
+    onMouseOver: (e) => { const el = findTipEl(e.target); if (el) showFrom(el); },
+    onMouseOut: (e) => {
+      const el = findTipEl(e.target);
+      if (!el) return;
+      const to = e.relatedTarget;
+      if (to && el.contains(to)) return; // 仍在同一元素内部移动，不隐藏
+      scheduleHide();
+    },
+    onFocus: (e) => { const el = findTipEl(e.target); if (el) showFrom(el); },
+    onBlur: (e) => { if (findTipEl(e.target)) scheduleHide(); },
+  };
+
+  /* 定位分两阶段，避免与宿主祖先的 transform/filter 打架：
+     阶段一：按浮层实测尺寸定目标位置（上下翻转 + 视口夹取），只在首次定位时算一次；
+     阶段二：目标生效后实测真实落点，用「目标 - 实际」差值补偿。
+     宿主祖先若带 transform/filter，fixed 的包含块会被换成该祖先，left/top 会整体偏移；无偏移时差值为 0，不产生额外渲染。 */
+  useLayoutEffect(() => {
+    if (!tip || !layerRef.current) return;
+    const box = layerRef.current.getBoundingClientRect();
+    const r = tip.rect;
+    const margin = 8;
+
+    if (!tip.want) {
+      let place = "bottom";
+      let top = r.bottom + margin;
+      if (r.bottom + margin + box.height > window.innerHeight && r.top - margin - box.height >= margin) {
+        place = "top";
+        top = r.top - margin - box.height;
+      }
+      top = Math.max(margin, Math.min(top, window.innerHeight - margin - box.height));
+      const half = box.width / 2;
+      const left = Math.max(margin + half, Math.min(window.innerWidth - margin - half, r.left + r.width / 2));
+      setTip({ ...tip, want: { left, top, place }, left, top, place });
+      return;
+    }
+
+    if (!tip.corrected) {
+      const dx = tip.want.left - (box.left + box.width / 2);
+      const dy = tip.want.top - box.top;
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+        setTip({ ...tip, corrected: true, left: tip.want.left + dx, top: tip.want.top + dy });
+      }
+    }
+  }, [tip]);
+
+  /* 滚动 / 尺寸变化后原坐标失效，直接隐藏，避免浮层停在错误位置 */
+  useEffect(() => {
+    if (!tip) return undefined;
+    const hide = () => { activeElRef.current = null; setTip(null); };
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
+  }, [tip]);
+
+  useEffect(() => () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); }, []);
+
+  const tooltipNode = tip
+    ? h("div", {
+        ref: layerRef,
+        className: "ucx-tooltip",
+        style: { left: tip.left + "px", top: tip.top + "px" },
+      }, tip.text)
+    : null;
+
+  return { tooltipProps, tooltipNode };
+}
+
 /* ---------- 自定义下拉（issue #4） ----------
    原生 select 的展开列表由系统渲染，深色主题下选项不可见；
    改为 button 触发器 + 绝对定位面板结构，配色接入宿主主题 CSS 变量（style.css 兜底回退值）。 */
-function UcxSelect({ value, onChange, options, title }) {
+function UcxSelect({ value, onChange, options, tip }) {
   const { useState, useRef, useEffect } = window.SnowAppPlugin.React;
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -496,7 +604,7 @@ function UcxSelect({ value, onChange, options, title }) {
   }, [open]);
 
   const current = options.find((o) => o.value === value);
-  return h("div", { className: "ucx-select", ref, title },
+  return h("div", { className: "ucx-select", ref, "data-ucx-tip": tip },
     h("button", {
       type: "button",
       className: "ucx-select-trigger",
@@ -562,6 +670,9 @@ export default function UsageCostPanel({ api }) {
 
   const [includeDaily, setIncludeDaily] = useState(false);
   const [actionMsg, setActionMsg] = useState(null); // 导出/复制反馈 { text, ok }
+
+  /* 自绘 tooltip 浮层：挂在根容器上做事件委托，替代全部原生 title */
+  const { tooltipProps, tooltipNode } = useUcxTooltip();
 
   const aliveRef = useRef(true);
   useEffect(() => () => { aliveRef.current = false; }, []);
@@ -1137,7 +1248,7 @@ export default function UsageCostPanel({ api }) {
           const tip = T("chart.tip", "{{date}} | 成本 {{cost}} | 请求 {{requests}} | 错误 {{errors}}", {
             date: d.date, cost: fmtCost(cur, d.cost), requests: fmtInt(d.totalRequests), errors: fmtInt(d.errorRequests),
           });
-          return h("div", { key: d.date, className: "ucx-chart-col", title: tip },
+          return h("div", { key: d.date, className: "ucx-chart-col", "data-ucx-tip": tip },
             h("div", {
               className: "ucx-chart-bar" + (d.cost > 0 ? "" : " ucx-chart-bar-empty"),
               style: { height: (pct || (d.totalRequests > 0 ? 2 : 0)) + "%" },
@@ -1170,7 +1281,7 @@ export default function UsageCostPanel({ api }) {
         type: "number",
         min: "0",
         step: "any",
-        title: T(c.labelKey, c.label) + T("price.unitSuffix", "单价（每 100 万 token）"),
+        "data-ucx-tip": T(c.labelKey, c.label) + T("price.unitSuffix", "单价（每 100 万 token）"),
         value: p[c.key],
         onChange: (e) => onPriceCell(scope, model, c.key, e.target.value),
       })
@@ -1188,14 +1299,14 @@ export default function UsageCostPanel({ api }) {
           onChange: (e) => setPriceEdit((prev) => ({ ...prev, currency: e.target.value })),
         })
       ),
-      h("button", { className: "ucx-btn ucx-primary", onClick: savePrices, title: T("price.saveTitle", "保存单价配置") }, T("price.save", "保存单价")),
+      h("button", { className: "ucx-btn ucx-primary", onClick: savePrices, "data-ucx-tip": T("price.saveTitle", "保存单价配置") }, T("price.save", "保存单价")),
       h(
         "button",
         {
           className: "ucx-btn",
           onClick: syncFromOpenRouter,
           disabled: syncing,
-          title: T("price.syncTitle", "从 OpenRouter 拉取当前用量模型的实时价（美元按当日汇率折算人民币），仅填入未自定义单价的模型"),
+          "data-ucx-tip": T("price.syncTitle", "从 OpenRouter 拉取当前用量模型的实时价（美元按当日汇率折算人民币），仅填入未自定义单价的模型"),
         },
         icon("CloudDownload", 14),
         syncing ? T("price.syncing", "同步中…") : T("price.sync", "同步 OpenRouter 价格")
@@ -1207,13 +1318,13 @@ export default function UsageCostPanel({ api }) {
       h("thead", null,
         h("tr", null,
           h("th", null, T("price.modelOrDefault", "模型 / 默认价")),
-          CATS.map((c) => h("th", { key: c.key, title: T("price.perM", "每 100 万 token") }, T(c.labelKey, c.label))),
+          CATS.map((c) => h("th", { key: c.key, "data-ucx-tip": T("price.perM", "每 100 万 token") }, T(c.labelKey, c.label))),
           h("th", null, T("price.action", "操作"))
         )
       ),
       h("tbody", null,
         h("tr", { className: "ucx-price-default-row" },
-          h("td", { title: T("price.defaultRowTitle", "未单独配置的模型使用此默认价") }, T("price.defaultRow", "默认价")),
+          h("td", { "data-ucx-tip": T("price.defaultRowTitle", "未单独配置的模型使用此默认价") }, T("price.defaultRow", "默认价")),
           priceInputs("default", null, priceEdit.defaultPrice),
           h("td", { className: "ucx-muted" }, "-")
         ),
@@ -1224,11 +1335,11 @@ export default function UsageCostPanel({ api }) {
             ? T("src.custom", "自定义")
             : builtinPriceFor(m) ? T("src.builtin", "内置估算") : T("src.default", "默认价");
           return h("tr", { key: m },
-            h("td", { className: "ucx-model-cell", title: m + T("price.currentEffect", " · 当前生效：") + srcLabel }, m),
+            h("td", { className: "ucx-model-cell", "data-ucx-tip": m + T("price.currentEffect", " · 当前生效：") + srcLabel }, m),
             priceInputs("model", m, row),
             h("td", null,
               isOverride
-                ? h("button", { className: "ucx-btn ucx-small", onClick: () => clearModelPrice(m), title: T("price.resetTitle", "清除该模型的自定义单价，回退内置估算或默认价") }, T("price.reset", "回退默认"))
+                ? h("button", { className: "ucx-btn ucx-small", onClick: () => clearModelPrice(m), "data-ucx-tip": T("price.resetTitle", "清除该模型的自定义单价，回退内置估算或默认价") }, T("price.reset", "回退默认"))
                 : h("span", { className: "ucx-muted" }, srcLabel)
             )
           );
@@ -1258,14 +1369,14 @@ export default function UsageCostPanel({ api }) {
         h("tr", { key: r.model },
           h("td", {
             className: "ucx-model-cell",
-            title: r.model + T("table.priceSource", " · 价格来源：") + (T(SOURCE_LABEL_KEY[r.priceSource] || r.priceSource, SOURCE_LABEL_DEF[r.priceSource] || r.priceSource)),
+            "data-ucx-tip": r.model + T("table.priceSource", " · 价格来源：") + (T(SOURCE_LABEL_KEY[r.priceSource] || r.priceSource, SOURCE_LABEL_DEF[r.priceSource] || r.priceSource)),
           },
             r.model,
             r.priceSource !== "custom"
               ? h("span", { className: "ucx-price-src" }, T(SOURCE_LABEL_KEY[r.priceSource] || r.priceSource, SOURCE_LABEL_DEF[r.priceSource] || r.priceSource))
               : null),
           h("td", null, fmtInt(r.totalRequests)),
-          h("td", { className: r.errorRequests > 0 ? "ucx-err" : "", title: T("table.errorCount", "错误数 {{n}}", { n: fmtInt(r.errorRequests) }) },
+          h("td", { className: r.errorRequests > 0 ? "ucx-err" : "", "data-ucx-tip": T("table.errorCount", "错误数 {{n}}", { n: fmtInt(r.errorRequests) }) },
             fmtPct(r.errorRequests, r.totalRequests)),
           h("td", null, fmtTokens(r.tokens.nonCachedInput)),
           h("td", null, fmtTokens(r.tokens.cacheRead)),
@@ -1277,7 +1388,7 @@ export default function UsageCostPanel({ api }) {
       h("tr", { className: "ucx-total-row" },
         h("td", null, T("table.total", "合计")),
         h("td", null, fmtInt(modelRows.reduce((s, r) => s + r.totalRequests, 0))),
-        h("td", { title: T("table.errorCount", "错误数 {{n}}", { n: fmtInt(modelRows.reduce((s, r) => s + r.errorRequests, 0)) }) },
+        h("td", { "data-ucx-tip": T("table.errorCount", "错误数 {{n}}", { n: fmtInt(modelRows.reduce((s, r) => s + r.errorRequests, 0)) }) },
           fmtPct(modelRows.reduce((s, r) => s + r.errorRequests, 0), modelRows.reduce((s, r) => s + r.totalRequests, 0))),
         h("td", null, fmtTokens(modelRows.reduce((s, r) => s + r.tokens.nonCachedInput, 0))),
         h("td", null, fmtTokens(modelRows.reduce((s, r) => s + r.tokens.cacheRead, 0))),
@@ -1293,7 +1404,7 @@ export default function UsageCostPanel({ api }) {
   const emptyState = !loading && !errMsg && (!summary || !summary.totalRequests) && !modelRows.length;
   const hasData = !!usage && !errMsg;
 
-  return h("div", { className: "ucx-root" },
+  return h("div", { className: "ucx-root", ...tooltipProps },
     /* 头部：标题 + 刷新 */
     h("div", { className: "ucx-header" },
       h("div", { className: "ucx-title" },
@@ -1308,7 +1419,8 @@ export default function UsageCostPanel({ api }) {
             invalidateDirProfiles(dirFilter);
             setRefreshTick((t) => t + 1);
           },
-          title: T("header.refresh", "立即刷新"),
+          "data-ucx-tip": T("header.refresh", "立即刷新"),
+          "aria-label": T("header.refresh", "立即刷新"),
         }, icon("RefreshCw", 14)),
         lastUpdated ? h("span", { className: "ucx-muted ucx-updated" }, T("header.updatedAt", "更新于 {{time}}", { time: lastUpdated.toLocaleTimeString(UI_LOCALE) })) : null
       )
@@ -1319,7 +1431,7 @@ export default function UsageCostPanel({ api }) {
       h(UcxSelect, {
         value: preset,
         onChange: applyPreset,
-        title: T("filter.range", "时间范围"),
+        tip: T("filter.range", "时间范围"),
         options: PRESETS.map((p) => ({ value: p.key, label: T(p.labelKey, p.label) })),
       }),
       h("input", {
@@ -1329,7 +1441,7 @@ export default function UsageCostPanel({ api }) {
         max: dateTo || undefined,
         disabled: preset === "all",
         onChange: (e) => onDateChange("from", e.target.value),
-        title: T("filter.dateFrom", "起始日期（含，当日 00:00:00 起）"),
+        "data-ucx-tip": T("filter.dateFrom", "起始日期（含，当日 00:00:00 起）"),
       }),
       h("span", { className: "ucx-filter-sep" }, "~"),
       h("input", {
@@ -1339,12 +1451,12 @@ export default function UsageCostPanel({ api }) {
         min: dateFrom || undefined,
         disabled: preset === "all",
         onChange: (e) => onDateChange("to", e.target.value),
-        title: T("filter.dateTo", "结束日期（含，至当日 23:59:59）"),
+        "data-ucx-tip": T("filter.dateTo", "结束日期（含，至当日 23:59:59）"),
       }),
       h(UcxSelect, {
         value: profileFilter,
         onChange: setProfileFilter,
-        title: T("filter.byProfile", "按 API 档案筛选"),
+        tip: T("filter.byProfile", "按 API 档案筛选"),
         /* 选项来源：未选项目时为全库档案名；选了项目后收窄为该项目下出现过的档案名（使「选项 = 可用值」） */
         options: [
           { value: "", label: T("filter.allProfiles", "全部档案") },
@@ -1357,7 +1469,7 @@ export default function UsageCostPanel({ api }) {
       h(UcxSelect, {
         value: dirFilter,
         onChange: setDirFilter,
-        title: T("filter.byProject", "按项目筛选"),
+        tip: T("filter.byProject", "按项目筛选"),
         options: [
           { value: "", label: T("filter.allProjects", "全部项目") },
           ...(dirFilter && !projects.some((d) => d.directoryId === dirFilter)
@@ -1413,8 +1525,8 @@ export default function UsageCostPanel({ api }) {
         }),
         T("export.includeDaily", "含每日明细")
       ),
-      h("button", { className: "ucx-btn", onClick: exportCsv, title: T("export.csvTitle", "导出 CSV 文件") }, icon("Download", 14), T("export.csv", "导出 CSV")),
-      h("button", { className: "ucx-btn", onClick: copyCsv, title: T("export.copyTitle", "复制 CSV 文本到剪贴板") }, icon("ClipboardCopy", 14), T("export.copy", "复制 CSV")),
+      h("button", { className: "ucx-btn", onClick: exportCsv, "data-ucx-tip": T("export.csvTitle", "导出 CSV 文件") }, icon("Download", 14), T("export.csv", "导出 CSV")),
+      h("button", { className: "ucx-btn", onClick: copyCsv, "data-ucx-tip": T("export.copyTitle", "复制 CSV 文本到剪贴板") }, icon("ClipboardCopy", 14), T("export.copy", "复制 CSV")),
       actionMsg ? h("span", { className: actionMsg.ok ? "ucx-ok" : "ucx-err" }, actionMsg.text) : null
     ) : null,
 
@@ -1427,6 +1539,9 @@ export default function UsageCostPanel({ api }) {
     /* 脚注：口径说明 */
     h("div", { className: "ucx-footer" },
       T("footer.text", "成本口径：非缓存输入 = totalInputTokens - totalCacheReadInputTokens（不足为 0）；缓存读 = totalCacheReadInputTokens；缓存写 = totalCacheCreationInputTokens；输出 = totalOutputTokens；成本 = 各部分 token ÷ 1000000 × 对应单价（单价：每 100 万 token，货币符号可配置）。daily/models 维度无 effective 拆分，成本为近似估算；每日成本按各 token 类别的全期混合单价折算，可能与按模型合计略有出入。数据来自 usage 元数据域，每 5 秒轮询。时间筛选对齐官方用量页口径（起始日 00:00:00 ~ 结束日 23:59:59），支持今天/昨天/近 7 天/近 30 天/本月/上月/全部/自定义起止与档案、项目筛选，筛选条件保存在插件本地存储。未自定义单价的模型按内置估算价计费，仅作参考，请按实际价格在「单价设置」中校准。")
-    )
+    ),
+
+    /* 自绘 tooltip 浮层（单例，挂在本容器内） */
+    tooltipNode
   );
 }

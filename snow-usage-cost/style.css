@@ -192,6 +192,42 @@
   opacity: 0.5;
 }
 
+/* ---------- 自绘 tooltip 浮层 ----------
+   替代原生 title：即时显示、配色可控，与下拉浮层同一套视觉语言。
+   position: fixed 避免被 .ucx-table-wrap 等 overflow 容器裁剪；
+   pointer-events: none 保证浮层不吞掉鼠标事件；left 由 JS 给出中心点，translateX(-50%) 居中。 */
+.ucx-tooltip {
+  position: fixed;
+  z-index: 60;
+  /* 宽度必须由内容决定，不能用 auto：宿主祖先若带 transform/filter，fixed 的包含块会被换成该祖先，
+     width:auto 的收缩宽度随之退化成 min-content（实测被压到约 5 个字宽，长文案竖排）。 */
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 5px 8px;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.38));
+  border-radius: var(--radius-md, 5px);
+  background: var(--bg-primary, #f5f5f5);
+  color: var(--text-primary, inherit);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  /* 用 overflow-wrap 而非 word-break: break-word（后者等价于 overflow-wrap: anywhere，会把 min-content 压到 1 字符） */
+  overflow-wrap: break-word;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: ucx-tooltip-in 0.09s ease-out;
+}
+
+@keyframes ucx-tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* 筛选自动重置等一次性提示（随筛选栏排布，不占独立行） */
 .ucx-filter-msg {
   font-size: 11px;
