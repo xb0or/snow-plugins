@@ -2,7 +2,7 @@
  * 成本核算看板 (Usage Cost) — Snow App 面板插件
  *
  * 数据源：usage 元数据域（summary / daily / models）+ projects 域（项目下拉选项）。
- * 时间筛选对齐官方用量页口径：起始日 00:00:00 ~ 结束日 23:59:59，预设今天/昨天/近7天/近30天/本月/上月/自定义。
+ * 时间筛选对齐官方用量页口径：起始日 00:00:00 ~ 结束日 23:59:59，预设今天/昨天/近7天/近30天/本月/上月/全部/自定义。
  * 成本口径（daily/models 维度无 effective 拆分，采用近似）：
  *   非缓存输入 = totalInputTokens - totalCacheReadInputTokens（不足为 0）
  *   缓存读     = totalCacheReadInputTokens
@@ -16,6 +16,9 @@
 
 const PRICES_KEY = "prices";
 const FILTER_KEY = "filter";
+/* 「全部日期」预设的查询边界：显式给出极早/极晚时间戳，避免依赖宿主对缺失 since/until 的默认处理 */
+const ALL_TIME_SINCE = "1970-01-01 00:00:00";
+const ALL_TIME_UNTIL = "2099-12-31 23:59:59";
 const POLL_MS = 5000;
 const PROJECTS_POLL_MS = 60000;
 const CATS = [
@@ -170,7 +173,7 @@ function isoDate(d) {
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
 }
 
-/* 时间预设（对齐官方用量页：今天 / 昨天 / 近 7 天 / 近 30 天 / 本月 / 上月 / 自定义） */
+/* 时间预设（对齐官方用量页：今天 / 昨天 / 近 7 天 / 近 30 天 / 本月 / 上月 / 全部 / 自定义） */
 const PRESETS = [
   { key: "today", labelKey: "preset.today", label: "今天" },
   { key: "yesterday", labelKey: "preset.yesterday", label: "昨天" },
@@ -178,13 +181,15 @@ const PRESETS = [
   { key: "d30", labelKey: "preset.d30", label: "近 30 天" },
   { key: "month", labelKey: "preset.month", label: "本月" },
   { key: "lastMonth", labelKey: "preset.lastMonth", label: "上月" },
+  { key: "all", labelKey: "preset.all", label: "全部" },
   { key: "custom", labelKey: "preset.custom", label: "自定义" },
 ];
 
-/** 预设 → 起止日期（yyyy-MM-dd，含端点；custom 用 fallback 当前输入） */
+/** 预设 → 起止日期（yyyy-MM-dd，含端点；custom 用 fallback 当前输入；all 返回空串表示不限日期） */
 function presetRange(p, fallbackFrom, fallbackTo) {
   const now = new Date();
   const today = isoDate(now);
+  if (p === "all") return { from: "", to: "" };
   if (p === "today") return { from: today, to: today };
   if (p === "yesterday") {
     const d = new Date(now);
@@ -641,9 +646,10 @@ export default function UsageCostPanel({ api }) {
     const pull = async () => {
       const r = presetRange(preset, dateFrom, dateTo);
       /* since/until 必须用空格分隔的完整时间戳：usage 域经 IPC 直接进入 SQL 字符串比较，
-         DB 中 created_at 为 "YYYY-MM-DD HH:MM:SS"（空格分隔），T 分隔或纯日期都会导致边界丢数据（issue #5） */
-      const since = r.from + " 00:00:00";
-      const until = r.to + " 23:59:59";
+         DB 中 created_at 为 "YYYY-MM-DD HH:MM:SS"（空格分隔），T 分隔或纯日期都会导致边界丢数据（issue #5）。
+         「全部日期」无起止输入（r.from/r.to 为空串），改用极早/极晚边界覆盖全量记录 */
+      const since = r.from ? r.from + " 00:00:00" : ALL_TIME_SINCE;
+      const until = r.to ? r.to + " 23:59:59" : ALL_TIME_UNTIL;
       const params = { since, until };
       if (profileFilter) params.profileName = profileFilter;
       try {
@@ -1057,7 +1063,9 @@ export default function UsageCostPanel({ api }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "usage-cost-" + (dateFrom || isoDate(new Date())) + "-" + (dateTo || isoDate(new Date())) + ".csv";
+      const tagFrom = dateFrom || (preset === "all" ? "all" : isoDate(new Date()));
+      const tagTo = dateTo || isoDate(new Date());
+      a.download = "usage-cost-" + tagFrom + "-" + tagTo + ".csv";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1067,7 +1075,7 @@ export default function UsageCostPanel({ api }) {
       setActionMsg({ text: T("msg.exportFailed", "导出失败：{{error}}", { error: e && e.message ? e.message : String(e) }), ok: false });
     }
     setTimeout(() => { if (aliveRef.current) setActionMsg(null); }, 2500);
-  }, [buildCsv, dateFrom, dateTo]);
+  }, [buildCsv, dateFrom, dateTo, preset]);
 
   const copyCsv = useCallback(async () => {
     try {
@@ -1319,6 +1327,7 @@ export default function UsageCostPanel({ api }) {
         type: "date",
         value: dateFrom,
         max: dateTo || undefined,
+        disabled: preset === "all",
         onChange: (e) => onDateChange("from", e.target.value),
         title: T("filter.dateFrom", "起始日期（含，当日 00:00:00 起）"),
       }),
@@ -1328,6 +1337,7 @@ export default function UsageCostPanel({ api }) {
         type: "date",
         value: dateTo,
         min: dateFrom || undefined,
+        disabled: preset === "all",
         onChange: (e) => onDateChange("to", e.target.value),
         title: T("filter.dateTo", "结束日期（含，至当日 23:59:59）"),
       }),
@@ -1380,7 +1390,9 @@ export default function UsageCostPanel({ api }) {
       dirFilter && truncated
         ? h("div", { className: "ucx-hint" }, T("chart.truncatedHint", "项目筛选下按明细聚合，已达单次聚合上限（40000 条），汇总与图表可能未覆盖完整范围。"))
         : null,
-      spanDays > 90 ? h("div", { className: "ucx-hint" }, T("chart.spanHint", "所选范围 {{days}} 天：每日明细最多返回 90 行（自最早日期起），条形图可能不覆盖完整范围。", { days: spanDays })) : null,
+      preset === "all"
+        ? h("div", { className: "ucx-hint" }, T("chart.allHint", "全部日期：每日明细最多返回 90 行（自最早日期起），条形图可能不覆盖完整范围。"))
+        : spanDays > 90 ? h("div", { className: "ucx-hint" }, T("chart.spanHint", "所选范围 {{days}} 天：每日明细最多返回 90 行（自最早日期起），条形图可能不覆盖完整范围。", { days: spanDays })) : null,
       maxDailyCost === 0 ? h("div", { className: "ucx-hint" }, T("chart.zeroHint", "当前价格配置下每日成本均为 0，可先在下方设置单价。")) : null,
       chart
     ) : null,
@@ -1414,7 +1426,7 @@ export default function UsageCostPanel({ api }) {
 
     /* 脚注：口径说明 */
     h("div", { className: "ucx-footer" },
-      T("footer.text", "成本口径：非缓存输入 = totalInputTokens - totalCacheReadInputTokens（不足为 0）；缓存读 = totalCacheReadInputTokens；缓存写 = totalCacheCreationInputTokens；输出 = totalOutputTokens；成本 = 各部分 token ÷ 1000000 × 对应单价（单价：每 100 万 token，货币符号可配置）。daily/models 维度无 effective 拆分，成本为近似估算；每日成本按各 token 类别的全期混合单价折算，可能与按模型合计略有出入。数据来自 usage 元数据域，每 5 秒轮询。时间筛选对齐官方用量页口径（起始日 00:00:00 ~ 结束日 23:59:59），支持今天/昨天/近 7 天/近 30 天/本月/上月/自定义起止与档案、项目筛选，筛选条件保存在插件本地存储。未自定义单价的模型按内置估算价计费，仅作参考，请按实际价格在「单价设置」中校准。")
+      T("footer.text", "成本口径：非缓存输入 = totalInputTokens - totalCacheReadInputTokens（不足为 0）；缓存读 = totalCacheReadInputTokens；缓存写 = totalCacheCreationInputTokens；输出 = totalOutputTokens；成本 = 各部分 token ÷ 1000000 × 对应单价（单价：每 100 万 token，货币符号可配置）。daily/models 维度无 effective 拆分，成本为近似估算；每日成本按各 token 类别的全期混合单价折算，可能与按模型合计略有出入。数据来自 usage 元数据域，每 5 秒轮询。时间筛选对齐官方用量页口径（起始日 00:00:00 ~ 结束日 23:59:59），支持今天/昨天/近 7 天/近 30 天/本月/上月/全部/自定义起止与档案、项目筛选，筛选条件保存在插件本地存储。未自定义单价的模型按内置估算价计费，仅作参考，请按实际价格在「单价设置」中校准。")
     )
   );
 }

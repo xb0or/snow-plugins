@@ -92,6 +92,12 @@
   color-scheme: light dark;
 }
 
+/* 「全部日期」预设下起止日期不适用：禁用并弱化，避免误改（disabled 由 preset === "all" 控制） */
+.ucx-date-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ---------- 自定义下拉（issue #4） ----------
    button 触发器 + 绝对定位展开面板，替代原生 select；
    配色接入宿主主题 CSS 变量（--bg-primary / --border-color / --text-primary / --accent-color / --radius-md），

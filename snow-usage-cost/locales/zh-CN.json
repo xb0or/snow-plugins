@@ -5,6 +5,7 @@
   "preset.d30": "近 30 天",
   "preset.month": "本月",
   "preset.lastMonth": "上月",
+  "preset.all": "全部",
   "preset.custom": "自定义",
 
   "cat.nonCachedInput": "非缓存输入",
@@ -45,6 +46,7 @@
   "chart.dailyCost": "每日成本",
   "chart.tip": "{{date}} | 成本 {{cost}} | 请求 {{requests}} | 错误 {{errors}}",
   "chart.spanHint": "所选范围 {{days}} 天：每日明细最多返回 90 行（自最早日期起），条形图可能不覆盖完整范围。",
+  "chart.allHint": "全部日期：每日明细最多返回 90 行（自最早日期起），条形图可能不覆盖完整范围。",
   "chart.truncatedHint": "项目筛选下按明细聚合，已达单次聚合上限（40000 条），汇总与图表可能未覆盖完整范围。",
   "chart.zeroHint": "当前价格配置下每日成本均为 0，可先在下方设置单价。",
 
@@ -114,7 +116,7 @@
   "csv.total": "合计",
   "csv.date": "日期",
 
-  "footer.text": "成本口径：非缓存输入 = totalInputTokens - totalCacheReadInputTokens（不足为 0）；缓存读 = totalCacheReadInputTokens；缓存写 = totalCacheCreationInputTokens；输出 = totalOutputTokens；成本 = 各部分 token ÷ 1000000 × 对应单价（单价：每 100 万 token，货币符号可配置）。daily/models 维度无 effective 拆分，成本为近似估算；每日成本按各 token 类别的全期混合单价折算，可能与按模型合计略有出入。数据来自 usage 元数据域，每 5 秒轮询。时间筛选对齐官方用量页口径（起始日 00:00:00 ~ 结束日 23:59:59），支持今天/昨天/近 7 天/近 30 天/本月/上月/自定义起止与档案、项目筛选，筛选条件保存在插件本地存储。未自定义单价的模型按内置估算价计费，仅作参考，请按实际价格在「单价设置」中校准。",
+  "footer.text": "成本口径：非缓存输入 = totalInputTokens - totalCacheReadInputTokens（不足为 0）；缓存读 = totalCacheReadInputTokens；缓存写 = totalCacheCreationInputTokens；输出 = totalOutputTokens；成本 = 各部分 token ÷ 1000000 × 对应单价（单价：每 100 万 token，货币符号可配置）。daily/models 维度无 effective 拆分，成本为近似估算；每日成本按各 token 类别的全期混合单价折算，可能与按模型合计略有出入。数据来自 usage 元数据域，每 5 秒轮询。时间筛选对齐官方用量页口径（起始日 00:00:00 ~ 结束日 23:59:59），支持今天/昨天/近 7 天/近 30 天/本月/上月/全部/自定义起止与档案、项目筛选，筛选条件保存在插件本地存储。未自定义单价的模型按内置估算价计费，仅作参考，请按实际价格在「单价设置」中校准。",
 
   "log.readPrices": "读取价格配置失败:",
   "log.readFilter": "读取筛选配置失败:",
