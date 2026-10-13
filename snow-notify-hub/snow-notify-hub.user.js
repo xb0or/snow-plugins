@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         snow-notify-hub
 // @namespace    kedou
-// @version      1.3.0
+// @version      1.4.2
 // @description  回合结束通知中心：多渠道推送（Server酱 / PushPlus / Bark / 钉钉 / 企业微信 / Telegram / 飞书）+ 提示音 + 应用内提示；支持后台会话（非当前打开会话）完成提醒
 // @author       kedou
 // @license      MIT
@@ -24,10 +24,11 @@
  *
  * 说明：
  *  - stream-end 只覆盖「当前打开的会话」：切到别的会话后，原会话跑完不会触发该事件。
- *    因此额外订阅元数据 runtime 域（live，无需隐私声明），用 streamingSessions 判断
- *    任意会话的流式开始/结束，实现后台会话完成提醒。
- *  - 后台会话无法读 DOM 取摘要，改用 messages 元数据域（需 @snow-privacy messages 声明）；
- *    未声明或读取被拒时自动降级为「只提示会话标题」。
+ *    因此额外订阅元数据 runtime 域（live，无需隐私声明），主信号是宿主维护的
+ *    completedConversationIds（非焦点会话「已完成未读」集合），兜底是 streamingSessions
+ *    集合变化，实现后台会话完成提醒。
+ *  - 提示正文默认为会话名（来自运行时快照）；选「回复摘要」时前台读 DOM，
+ *    后台读 messages 元数据域（需 @snow-privacy messages 声明）。
  *  - 推送全部走 snow.fetch（经主进程、无 CORS 限制）；凭据仅存本机 GM 值。
  *  - 提示音由 Web Audio 现场合成，无外部音频资源，21 种预设。
  *  - 系统级通知（GM_notification）在本构建中静默失效（实测），故提示条为应用内自绘，配色跟随宿主主题。
@@ -152,7 +153,8 @@
           bgWatch: cfg.backgroundWatch, bodyMode: cfg.bodyMode,
           minSec: cfg.minStreamSeconds, quiet: cfg.quietEnabled, diag: cfg.diag
         },
-        ctx: ctxBrief()
+        ctx: ctxBrief(),
+        menubtn: (function () { try { return !!menuBtn; } catch (e) { return null; } })()
       }));
     } catch (e) { /* ignore */ }
   }
@@ -166,10 +168,6 @@
     "message-circle": '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
     smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
     bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
-    globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
-    zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
-    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
-    moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
     monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
     "sliders-horizontal": '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
@@ -177,12 +175,8 @@
     check: '<path d="M20 6 9 17l-5-5"/>',
     play: '<polygon points="6 3 20 12 6 21 6 3"/>',
     "volume-2": '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
-    info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
     "circle-alert": '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
-    "loader-circle": '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
-    "refresh-cw": '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
-    activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
-    eraser: '<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/>'
+    "loader-circle": '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>'
   };
 
   function svgIcon(name, size) {
@@ -393,7 +387,6 @@
             if (j && typeof j === "object") {
               if (j.code != null && j.code !== 0 && j.code !== "0") { bad = true; detail = "code " + j.code; }
               if (j.errcode != null && j.errcode !== 0) { bad = true; detail = "errcode " + j.errcode; }
-              if (j.code != null && j.code === 40001) { bad = true; detail = "code 40001"; }
             }
           } catch (e) { /* 非 JSON，按成功处理 */ }
           return bad ? { ok: false, error: detail || "业务错误" } : { ok: true };
@@ -465,8 +458,6 @@
     "." + PREFIX + "-ghost{border-color:transparent;background:transparent;}",
     "." + PREFIX + "-primary{background:var(--accent-color,#111827);color:var(--on-solid,#fff);border-color:var(--accent-color,#111827);}",
     "." + PREFIX + "-primary:hover{opacity:.9;background:var(--accent-color,#111827);color:var(--on-solid,#fff);}",
-    "." + PREFIX + "-spin{animation:" + PREFIX + "-spin .8s linear infinite;}",
-    "@keyframes " + PREFIX + "-spin{to{transform:rotate(360deg)}}",
     "." + PREFIX + "-foot{display:flex;align-items:center;gap:8px;padding:11px 15px;",
     "border-top:1px solid var(--border-color,rgba(127,127,127,.22));}",
     "." + PREFIX + "-spacer{flex:1;}",
@@ -474,6 +465,25 @@
     /* 应用内提示条 */
     "." + PREFIX + "-toastwrap{position:fixed;top:14px;right:14px;z-index:10000;display:flex;flex-direction:column;gap:8px;",
     "pointer-events:none;font-family:var(--font-sans,inherit);}",
+
+    /* 顶栏菜单按钮（待办列表旁的小铃铛） */
+    "." + PREFIX + "-menubtn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;",
+    "cursor:pointer;background:transparent;border:1px solid transparent;border-radius:var(--radius-sm,6px);",
+    "color:var(--text-secondary,inherit);transition:background .15s,color .15s;}",
+    "." + PREFIX + "-menubtn:hover{background:var(--bg-hover,rgba(127,127,127,.12));color:var(--text-primary,inherit);}",
+    "." + PREFIX + "-menubtn:focus-visible{outline:2px solid var(--accent-blue,#3b82f6);outline-offset:1px;}",
+    "." + PREFIX + "-menubtn svg{display:block;}",
+
+    /* 浮层（tooltip 式设置面板） */
+    "." + PREFIX + "-pop{position:fixed;z-index:10000;width:min(420px,calc(100vw - 16px));max-height:min(76vh,640px);",
+    "display:flex;flex-direction:column;background:var(--bg-primary,#fff);color:var(--text-primary,inherit);",
+    "border:1px solid var(--border-color,rgba(127,127,127,.3));border-radius:var(--radius-lg,12px);",
+    "box-shadow:0 18px 48px rgba(0,0,0,.28);overflow:hidden;overflow-wrap:break-word;",
+    "font-family:var(--font-sans,inherit);animation:" + PREFIX + "-fadein .14s ease-out;}",
+    "@keyframes " + PREFIX + "-fadein{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}",
+    "." + PREFIX + "-pop-head{display:flex;align-items:center;gap:8px;padding:10px 12px;",
+    "border-bottom:1px solid var(--border-color,rgba(127,127,127,.22));}",
+    "." + PREFIX + "-pop-title{flex:1;font-size:13px;font-weight:700;display:flex;align-items:center;gap:7px;}",
     "." + PREFIX + "-toast{pointer-events:auto;width:300px;max-width:78vw;display:flex;gap:9px;padding:11px 12px;",
     "border-radius:var(--radius-md,8px);background:var(--bg-primary,#fff);color:var(--text-primary,inherit);",
     "border:1px solid var(--border-color,rgba(127,127,127,.3));box-shadow:0 10px 30px rgba(0,0,0,.24);",
@@ -570,8 +580,8 @@
     return cur >= a || cur < b; /* 跨零点 */
   }
 
-  /* 取回复摘要：摘要模式且是当前打开的会话时读 DOM；后台会话改读 messages 元数据域 */
-  function excerptFromLast(convId) {
+  /* 取回复摘要：仅摘要模式使用；当前打开的会话读 DOM（后台会话走 messages 元数据域） */
+  function excerptFromLast() {
     var nodes = document.querySelectorAll('[data-snow-anchor="chat.message"]');
     for (var i = nodes.length - 1; i >= 0; i--) {
       if (nodes[i].getAttribute("data-snow-message-role") === "assistant") {
@@ -650,7 +660,7 @@
     }, 6000);
   }
 
-  /* 同一会话 8 秒内只提醒一次：stream-end 与后台监听可能同时命中同一次结束 */
+  /* 同一会话 30 秒内只提醒一次：stream-end 与后台监听可能同时命中同一次结束 */
   function claimNotify(convId) {
     var key = convId || "__focus__";
     var now = Date.now();
@@ -1024,26 +1034,8 @@
     modalEl = null;
   }
 
-  function openSettings() {
-    injectStyle();
-    closeSettings();
-    var mask = el("div", PREFIX + "-mask");
-    mask.addEventListener("click", function (e) { if (e.target === mask) closeSettings(); });
-    var modal = el("div", PREFIX + "-modal");
-
-    var head = el("div", PREFIX + "-head");
-    var ht = el("div", PREFIX + "-head-title");
-    ht.appendChild(svgIcon("bell-ring", 16));
-    ht.appendChild(el("span", null, "通知推送设置"));
-    head.appendChild(ht);
-    var closeBtn = el("button", PREFIX + "-btn " + PREFIX + "-ghost");
-    closeBtn.type = "button";
-    closeBtn.title = "关闭";
-    closeBtn.setAttribute("aria-label", "关闭");
-    closeBtn.appendChild(svgIcon("x", 16));
-    closeBtn.addEventListener("click", closeSettings);
-    head.appendChild(closeBtn);
-
+  /* 设置内容共用：输入栏按钮（浮层）与脚本菜单（弹窗）两个入口渲染同一份 */
+  function buildSettingsBody() {
     var body = el("div", PREFIX + "-body");
 
     /* 总开关与触发规则 */
@@ -1127,6 +1119,10 @@
     secCh.appendChild(el("div", PREFIX + "-hint", "凭据仅保存在本机插件存储中，不会上传。HTTP 请求经应用网络栈发出（受系统代理设置影响）。"));
     body.appendChild(secCh);
 
+    return body;
+  }
+
+  function buildFooter(onClose) {
     var foot = el("div", PREFIX + "-foot");
     var testAll = el("button", PREFIX + "-btn");
     testAll.type = "button";
@@ -1145,23 +1141,179 @@
     done.type = "button";
     done.appendChild(svgIcon("check", 14));
     done.appendChild(el("span", null, "完成"));
-    done.addEventListener("click", closeSettings);
+    done.addEventListener("click", onClose);
     foot.appendChild(testAll);
     foot.appendChild(spacer);
     foot.appendChild(done);
+    return foot;
+  }
+
+  /* 脚本菜单入口：居中弹窗（输入栏按钮不可用时的兜底） */
+  function openSettings() {
+    injectStyle();
+    closeSettings();
+    closePopover();
+    var mask = el("div", PREFIX + "-mask");
+    mask.addEventListener("click", function (e) { if (e.target === mask) closeSettings(); });
+    var modal = el("div", PREFIX + "-modal");
+
+    var head = el("div", PREFIX + "-head");
+    var ht = el("div", PREFIX + "-head-title");
+    ht.appendChild(svgIcon("bell-ring", 16));
+    ht.appendChild(el("span", null, "通知推送设置"));
+    head.appendChild(ht);
+    var closeBtn = el("button", PREFIX + "-btn " + PREFIX + "-ghost");
+    closeBtn.type = "button";
+    closeBtn.title = "关闭";
+    closeBtn.setAttribute("aria-label", "关闭");
+    closeBtn.appendChild(svgIcon("x", 16));
+    closeBtn.addEventListener("click", closeSettings);
+    head.appendChild(closeBtn);
 
     modal.appendChild(head);
-    modal.appendChild(body);
-    modal.appendChild(foot);
+    modal.appendChild(buildSettingsBody());
+    modal.appendChild(buildFooter(closeSettings));
     mask.appendChild(modal);
     document.body.appendChild(mask);
     modalEl = mask;
+  }
+
+  /* ============================ 顶栏菜单按钮 + 浮层（tooltip 式） ============================ */
+
+  var menuBtn = null;
+  var popoverEl = null;
+  var popDocListeners = [];
+  var slotObserver = null;
+  var slotCheckTimer = 0;
+
+  function closePopover() {
+    if (popoverEl && popoverEl.parentNode) popoverEl.parentNode.removeChild(popoverEl);
+    popoverEl = null;
+    for (var i = 0; i < popDocListeners.length; i++) {
+      document.removeEventListener(popDocListeners[i].type, popDocListeners[i].fn, true);
+    }
+    popDocListeners = [];
+    if (menuBtn) menuBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function openPopover(anchor) {
+    injectStyle();
+    closePopover();
+    closeSettings();
+    var panel = el("div", PREFIX + "-pop");
+    var head = el("div", PREFIX + "-pop-head");
+    var ht = el("div", PREFIX + "-pop-title");
+    ht.appendChild(svgIcon("bell-ring", 14));
+    ht.appendChild(el("span", null, "通知推送设置"));
+    var closeBtn = el("button", PREFIX + "-btn " + PREFIX + "-ghost " + PREFIX + "-btn-sm");
+    closeBtn.type = "button";
+    closeBtn.title = "关闭";
+    closeBtn.setAttribute("aria-label", "关闭");
+    closeBtn.appendChild(svgIcon("x", 14));
+    closeBtn.addEventListener("click", closePopover);
+    head.appendChild(ht);
+    head.appendChild(closeBtn);
+    panel.appendChild(head);
+    panel.appendChild(buildSettingsBody());
+    panel.appendChild(buildFooter(closePopover));
+    panel.style.left = "-9999px";
+    document.body.appendChild(panel);
+
+    /* 定位：优先在按钮下方、右对齐；放不下翻到上方；始终夹在视口内。
+       fixed 的包含块可能被宿主祖先的 transform 替换，故宽度用 min() 封顶防塌陷。 */
+    var r = anchor.getBoundingClientRect();
+    var w = panel.offsetWidth, h = panel.offsetHeight;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var left = r.right - w;
+    if (left < 8) left = 8;
+    if (left + w > vw - 8) left = Math.max(8, vw - 8 - w);
+    var top = r.bottom + 8;
+    if (top + h > vh - 8) top = r.top - h - 8;
+    if (top < 8) top = 8;
+    panel.style.left = left + "px";
+    panel.style.top = top + "px";
+    popoverEl = panel;
+    anchor.setAttribute("aria-expanded", "true");
+
+    /* 点击浮层与按钮以外区域、或按 Esc 关闭 */
+    function onDoc(e) {
+      if (popoverEl && popoverEl.contains(e.target)) return;
+      if (anchor && anchor.contains(e.target)) return;
+      closePopover();
+    }
+    document.addEventListener("click", onDoc, true);
+    popDocListeners.push({ type: "click", fn: onDoc });
+    function onKey(e) { if (e.key === "Escape") closePopover(); }
+    document.addEventListener("keydown", onKey, true);
+    popDocListeners.push({ type: "keydown", fn: onKey });
+  }
+
+  /* 注入菜单按钮：优先放在顶栏「待办列表」按钮旁（小铃铛图标）；找不到时回退 chat.input.actions 插槽 */
+  function findTodoButton() {
+    var cand = document.querySelector(".top-bar-todo-btn");
+    if (cand) return cand;
+    cand = document.querySelector('button[aria-label="待办列表"]');
+    if (cand) return cand;
+    cand = document.querySelector('button[title^="待办列表"]');
+    if (cand) return cand;
+    return null;
+  }
+
+  function injectMenuButton() {
+    var anchorBtn = findTodoButton();
+    var fallback = null;
+    if (!anchorBtn) {
+      try { fallback = snow.slot && snow.slot("chat.input.actions"); } catch (e) { /* ignore */ }
+      if (!fallback) {
+        try { fallback = document.querySelector('[data-snow-slot="chat.input.actions"]'); } catch (e) { return; }
+      }
+      if (!fallback) return;
+    }
+
+    /* 全局只保留一个按钮：已存在则复用；若顶栏锚点此时可用而按钮不在锚点旁，搬迁过去（防回退残留） */
+    var existing = document.querySelector("." + PREFIX + "-menubtn");
+    if (existing) {
+      if (anchorBtn && existing.previousElementSibling !== anchorBtn && existing.nextElementSibling !== anchorBtn) {
+        anchorBtn.insertAdjacentElement("afterend", existing);
+      }
+      menuBtn = existing;
+      return;
+    }
+
+    var btn = el("button", PREFIX + "-menubtn");
+    btn.type = "button";
+    btn.title = "通知推送设置";
+    btn.setAttribute("aria-label", "通知推送设置");
+    btn.setAttribute("aria-haspopup", "dialog");
+    btn.setAttribute("aria-expanded", "false");
+    btn.appendChild(svgIcon("bell", 16));
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (popoverEl) closePopover();
+      else openPopover(btn);
+    });
+    if (anchorBtn) anchorBtn.insertAdjacentElement("afterend", btn); /* 紧贴待办列表按钮右侧 */
+    else fallback.appendChild(btn);
+    menuBtn = btn;
+    diag("menubtn", { injected: true, host: anchorBtn ? "topbar-todo" : "input-slot" });
+  }
+
+  /* 输入区随视图切换可能重建插槽节点：MutationObserver + 250ms 防抖重挂 */
+  function watchMenuSlot() {
+    if (slotObserver) return;
+    slotObserver = new MutationObserver(function () {
+      if (slotCheckTimer) return;
+      slotCheckTimer = window.setTimeout(function () { slotCheckTimer = 0; injectMenuButton(); }, 250);
+    });
+    slotObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   /* ============================ 接线 ============================ */
 
   function wire() {
     injectStyle();
+    injectMenuButton();
+    watchMenuSlot();
     bootStamp();
     diag("wire", { ctx: ctxBrief() });
     try {
@@ -1171,7 +1323,13 @@
 
     snow.onCleanup(function () {
       stopBackgroundWatch();
+      if (slotObserver) { slotObserver.disconnect(); slotObserver = null; }
+      if (slotCheckTimer) { window.clearTimeout(slotCheckTimer); slotCheckTimer = 0; }
+      closePopover();
       closeSettings();
+      var liveBtn = document.querySelector("." + PREFIX + "-menubtn");
+      if (liveBtn && liveBtn.parentNode) liveBtn.parentNode.removeChild(liveBtn);
+      menuBtn = null;
       if (toastWrap && toastWrap.parentNode) toastWrap.parentNode.removeChild(toastWrap);
       if (styleEl && styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
     });
