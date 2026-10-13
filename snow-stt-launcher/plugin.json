@@ -1,0 +1,36 @@
+{
+  "id": "com.seagull.stt-launcher",
+  "name": {
+    "default": "Local Speech Service",
+    "zh-CN": "本地语音服务"
+  },
+  "description": {
+    "default": "Start / stop / restart the local whisper.cpp transcription service and manage its models. Use together with the snow-voice-io client script — this panel only runs the service, it provides no voice input by itself.",
+    "zh-CN": "启动 / 停止 / 重启本地 whisper.cpp 转写服务并管理识别模型。需与 snow-voice-io 客户端脚本配合使用：本面板只负责起服务，本身不提供语音输入。"
+  },
+  "version": "1.4.0",
+  "author": "kedou",
+  "license": "MIT",
+  "icon": "lucide:AudioWaveform",
+  "renderMode": "esm",
+  "entry": "index.js",
+  "panels": [
+    {
+      "id": "main",
+      "title": {
+        "default": "Local Speech Service",
+        "zh-CN": "本地语音服务"
+      },
+      "icon": "lucide:AudioWaveform"
+    }
+  ],
+  "locales": {
+    "en": "locales/en.json",
+    "zh-CN": "locales/zh-CN.json"
+  },
+  "styles": ["style.css"],
+  "privacy": {
+    "scopes": ["terminal"],
+    "note": "启动与停止本地语音服务需要创建终端会话以运行 Python 服务进程；所有操作仅在本机执行。"
+  }
+}
