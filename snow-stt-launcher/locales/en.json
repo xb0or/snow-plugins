@@ -66,6 +66,7 @@
   "hint.start": "Start runs python stt_server.py in the background; a resident whisper-server is launched on demand so the model is loaded only once.",
   "err.terminalCreate": "Could not create a terminal",
   "err.terminalWrite": "Terminal write failed",
+  "err.noDir": "Set the Service directory (the folder containing stt_server.py) first.",
   "engine.cli": "whisper CLI",
   "engine.model": "Model",
   "engine.threads": "Threads",
@@ -74,5 +75,5 @@
   "engine.residentOn": "Resident whisper-server (model loaded once)",
   "engine.residentOff": "whisper-cli (model reloaded per request)",
   "note.title": "About",
-  "note.body": "This panel controls the local whisper.cpp service that snow-voice-io uses for speech-to-text. Speech recognition itself runs entirely on this machine."
+  "note.body": "This panel starts / stops / restarts the local whisper.cpp transcription service and manages its models. It only runs the service; voice input and read-aloud are handled by the companion client script. Speech recognition runs entirely on this machine."
 }

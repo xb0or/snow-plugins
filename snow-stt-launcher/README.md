@@ -1,9 +1,9 @@
-# snow-stt-launcher（本地语音服务）
+# 本地语音服务（Local Speech Service）
 
-Snow App **面板插件**：启动 / 停止 / 重启 / 状态检测 [snow-voice-io](../snow-voice-io/) 使用的本地 whisper 转写服务。
+Snow App **面板插件**：启动 / 停止 / 重启 / 状态检测「本地语音服务」客户端脚本使用的本地 whisper 转写服务。
 
-> **需与 [snow-voice-io](../snow-voice-io/) 客户端脚本配合使用**：本面板只负责「起服务 + 管模型」，
-> **本身不提供语音输入**。语音输入 / 朗读由 `snow-voice-io` 脚本完成——两者要一起装，
+> **需与「本地语音服务」客户端脚本配合使用**（两个产物同名，需一起安装）：本面板只负责「起服务 + 管模型」，
+> **本身不提供语音输入**。语音输入 / 朗读由该客户端脚本完成——
 > 缺了脚本面板没有输入入口，缺了面板则需自己用命令行启动服务。
 
 ## 功能
@@ -39,14 +39,14 @@ Snow App **面板插件**：启动 / 停止 / 重启 / 状态检测 [snow-voice-
 ## 前置条件
 
 1. **Python 3** 在 PATH 中可用。
-2. 服务目录内存在 `stt_server.py` 与 whisper 运行时（`whisper/bin/Release/whisper-cli.exe` 与 `whisper/ggml-*.bin`），默认即 `snow-voice-io/stt-service`。
+2. 服务目录内存在 `stt_server.py` 与 whisper 运行时（`whisper/bin/Release/whisper-cli.exe` 与 `whisper/ggml-*.bin`），即本仓库的 `snow-voice-io/stt-service`。面板中「服务目录」需填该目录（不随插件分发，需自行准备）。
 
-## 与 snow-voice-io 的关系
+## 与客户端脚本的关系
 
 | | 作用 |
 | --- | --- |
-| snow-voice-io（客户端脚本） | 录音 → 调本机转写服务 → 回填文本；朗读 AI 回复 |
-| snow-stt-launcher（本插件） | 控制那个本机转写服务的启停与状态 |
+| 本地语音服务（客户端脚本） | 录音 → 调本机转写服务 → 回填文本；朗读 AI 回复 |
+| 本地语音服务（本插件，面板） | 控制那个本机转写服务的启停与状态 |
 
 **两者需配合使用**：只装脚本不装面板，服务得起不来（除非手动用命令行启动）；
 只装面板不装脚本，面板本身没有语音输入入口。两者通过 `127.0.0.1:<端口>` 通信，

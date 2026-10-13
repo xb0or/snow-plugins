@@ -16,7 +16,9 @@
  */
 
 const DEFAULT_PORT = 8791;
-const DEFAULT_DIR = "F:\\desktop\\code\\snow-plugins\\snow-voice-io\\stt-service";
+/* 服务目录没有可用的默认值：stt-service 不随插件分发，必须由用户在「服务目录」中指定。
+   留空时启动动作会被拦截并提示，避免写死任何本机绝对路径。 */
+const DEFAULT_DIR = "";
 const STORAGE_KEY = "stt-launcher.config";
 
 /* 终端命令执行后的等待时长：PowerShell 首次启动 + 加载 profile 需要时间，
@@ -337,6 +339,10 @@ export default function Panel({ api }) {
   }, [api]);
 
   const startService = useCallback(async () => {
+    if (!String(dir || "").trim()) {
+      setMessage({ kind: "error", text: t("err.noDir", "请先填写「服务目录」（包含 stt_server.py 的目录）") });
+      return;
+    }
     setBusy("start");
     setMessage(null);
     try {
@@ -344,7 +350,7 @@ export default function Panel({ api }) {
     } catch (e) {
       setMessage({ kind: "error", text: String((e && e.message) || e) });
     } finally { setBusy(""); }
-  }, [port, dir, modelPath, backendMode, startCore]);
+  }, [port, dir, modelPath, backendMode, startCore, t]);
 
   const stopService = useCallback(async () => {
     setBusy("stop");
@@ -357,6 +363,10 @@ export default function Panel({ api }) {
   }, [port, stopCore]);
 
   const restartService = useCallback(async () => {
+    if (!String(dir || "").trim()) {
+      setMessage({ kind: "error", text: t("err.noDir", "请先填写「服务目录」（包含 stt_server.py 的目录）") });
+      return;
+    }
     setBusy("restart");
     setMessage(null);
     const p = port, d = dir, mp = modelPath, bm = backendMode;

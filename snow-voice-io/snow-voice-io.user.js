@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         snow-voice-io
-// @namespace    snow-plugins
-// @version      1.4.0
+// @name         Local Speech Service
+// @namespace    kedou
+// @version      1.4.1
 // @description  语音输入（本地 Whisper 服务）+ AI 回复朗读（系统 TTS）
-// @author       snow-plugins
+// @author       kedou
 // @license      MIT
 // @icon         lucide:Mic
 // @snow-target  client

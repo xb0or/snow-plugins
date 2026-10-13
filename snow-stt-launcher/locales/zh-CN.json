@@ -66,6 +66,7 @@
   "hint.start": "启动会在后台运行 python stt_server.py；识别时会自动拉起常驻 whisper-server，模型只加载一次。",
   "err.terminalCreate": "无法创建终端",
   "err.terminalWrite": "终端写入失败",
+  "err.noDir": "请先填写「服务目录」（包含 stt_server.py 的目录）。",
   "engine.cli": "whisper 程序",
   "engine.model": "模型",
   "engine.threads": "线程数",
@@ -74,5 +75,5 @@
   "engine.residentOn": "常驻 whisper-server（模型只加载一次）",
   "engine.residentOff": "whisper-cli（每次请求重新加载模型）",
   "note.title": "说明",
-  "note.body": "本面板控制 snow-voice-io 用于语音转写的本地 whisper.cpp 服务。语音识别全程在本机完成，不上传音频。"
+  "note.body": "本面板负责本地 whisper.cpp 转写服务的启停与模型管理；语音输入与朗读由配套的客户端脚本完成。语音识别全程在本机完成，不上传音频。"
 }
