@@ -1,7 +1,7 @@
 /*
  * 本地语音服务 (Local Speech Service) — Snow App ESM 面板插件
  *
- * 用途：启动 / 停止 / 状态检测 snow-voice-io 使用的本地 whisper.cpp 转写服务，并可下载识别模型。
+ * 用途：启动 / 停止 / 状态检测「本地语音服务」客户端脚本使用的本地 whisper.cpp 转写服务，并可下载识别模型。
  *
  * 实现要点（均为实测确认的能力）：
  *  - 状态检测：api.net.fetch 请求 http://127.0.0.1:<port>/ping（回环 HTTP，面板运行时同样可用）。
