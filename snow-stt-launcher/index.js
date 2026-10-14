@@ -42,7 +42,8 @@ const ICON_PATHS = {
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
   box: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
-  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>'
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c0 1 1 2 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>',
+  sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>'
 };
 
 function makeIcon(R, name, size) {
@@ -280,8 +281,11 @@ export default function Panel({ api }) {
   }, [downloads, port]);
 
   /* ---------- 在临时终端里执行命令 ---------- */
-  const runInTerminal = useCallback(async (command) => {
-    const created = await api.write.run("terminal.create", { cwd: dir, cols: 100, rows: 24 });
+  const runInTerminal = useCallback(async (command, cwdOverride) => {
+    const useCwd = typeof cwdOverride === "string" ? cwdOverride : dir;
+    const opts = { cols: 100, rows: 24 };
+    if (useCwd && String(useCwd).trim()) opts.cwd = String(useCwd).trim();
+    const created = await api.write.run("terminal.create", opts);
     if (!created || !created.ok || !created.data || !created.data.terminalId) {
       throw new Error((created && created.error) || t("err.terminalCreate", "无法创建终端"));
     }
@@ -302,14 +306,21 @@ export default function Panel({ api }) {
      重启 = 先停 → 等端口真正释放 → 再起，避免新旧进程抢同一端口。
      模型与后端偏好在这里通过环境变量下发给服务进程，因此未启动时也能先选好。 */
   const startCore = useCallback(async (p, d, mp, bm) => {
+    const useDir = String(d || "").trim();
+    /* 服务目录留空 = 使用插件安装目录内置的 stt-service（stt_server.py 随插件分发） */
+    const dirExpr = useDir ? psQuote(useDir)
+      : "(Join-Path $env:USERPROFILE '.snowapp\\plugins\\com.seagull.stt-launcher\\stt-service')";
     const envParts = [];
     if (mp) envParts.push("$env:SNOW_WHISPER_MODEL=" + psQuote(mp));
     envParts.push("$env:SNOW_STT_BACKEND=" + psQuote(bm || "auto"));
     const cmd = envParts.join("; ") + "; " +
-      "Start-Process -FilePath 'python' -ArgumentList @('stt_server.py'," + psQuote(String(p)) + ") " +
-      "-WorkingDirectory " + psQuote(d) + " -WindowStyle Hidden\r\n";
-    await runInTerminal(cmd);
-    await sleep(1800);
+      "$d = " + dirExpr + "; " +
+      "if (Test-Path (Join-Path $d 'stt_server.py')) { " +
+      "Start-Process -FilePath 'python' -ArgumentList @((Join-Path $d 'stt_server.py')," + psQuote(String(p)) + ") " +
+      "-WorkingDirectory $d -WindowStyle Hidden } " +
+      "else { Write-Host ('stt_server.py not found under ' + $d) };\r\n";
+    await runInTerminal(cmd, useDir);
+    await sleep(3500);
     await doCheck(p);
   }, [runInTerminal, doCheck]);
 
@@ -339,10 +350,6 @@ export default function Panel({ api }) {
   }, [api]);
 
   const startService = useCallback(async () => {
-    if (!String(dir || "").trim()) {
-      setMessage({ kind: "error", text: t("err.noDir", "请先填写「服务目录」（包含 stt_server.py 的目录）") });
-      return;
-    }
     setBusy("start");
     setMessage(null);
     try {
@@ -350,7 +357,7 @@ export default function Panel({ api }) {
     } catch (e) {
       setMessage({ kind: "error", text: String((e && e.message) || e) });
     } finally { setBusy(""); }
-  }, [port, dir, modelPath, backendMode, startCore, t]);
+  }, [port, dir, modelPath, backendMode, startCore]);
 
   const stopService = useCallback(async () => {
     setBusy("stop");
@@ -363,10 +370,6 @@ export default function Panel({ api }) {
   }, [port, stopCore]);
 
   const restartService = useCallback(async () => {
-    if (!String(dir || "").trim()) {
-      setMessage({ kind: "error", text: t("err.noDir", "请先填写「服务目录」（包含 stt_server.py 的目录）") });
-      return;
-    }
     setBusy("restart");
     setMessage(null);
     const p = port, d = dir, mp = modelPath, bm = backendMode;
@@ -379,6 +382,27 @@ export default function Panel({ api }) {
       setMessage({ kind: "error", text: String((e && e.message) || e) });
     } finally { setBusy(""); }
   }, [port, dir, modelPath, backendMode, stopCore, startCore, waitPortFree, t]);
+
+  /* 让宿主 AI 代装 GPU 后端：把安装指引写入聊天输入框（公开写动作 chatInput.insertText）。
+     GPU 后端（CUDA/Vulkan）体积大且 CUDA 需补 cuBLAS，不做自动下载，交由 AI 按指引安装。 */
+  const askAiGpu = useCallback(async () => {
+    const useDir = String(dir || "").trim();
+    const svcDir = useDir || "%USERPROFILE%\\.snowapp\\plugins\\com.seagull.stt-launcher\\stt-service";
+    const prompt = t("gpu.prompt", "")
+      .replace("__DIR__", svcDir)
+      .replace("__PORT__", String(port));
+    if (!prompt.trim()) return;
+    try {
+      const res = await api.write.run("chatInput.insertText", { text: prompt });
+      if (res && res.ok) {
+        setMessage({ kind: "ok", text: t("msg.aiGpuInserted", "安装指引已插入输入框，发送即可让 AI 代为安装 GPU 后端") });
+      } else {
+        setMessage({ kind: "error", text: String((res && res.error) || "chatInput.insertText failed") });
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: String((e && e.message) || e) });
+    }
+  }, [api, dir, port, t]);
 
   /* 切换模型：落盘后自动重启服务；服务没在跑就只保存，等下次启动生效 */
   const onModelChange = useCallback(async (mp) => {
@@ -594,6 +618,17 @@ export default function Panel({ api }) {
         )
       ),
       R.createElement("div", { className: "stl-hint" }, backendHint()),
+      R.createElement("div", { className: "stl-row" },
+        R.createElement("span", { className: "stl-label" }),
+        R.createElement("button", {
+          className: "stl-btn stl-btn-sm stl-ghost", type: "button",
+          title: t("btn.aiGpuHint", "把 GPU 后端（CUDA/Vulkan）的安装指引插入聊天输入框，交给 AI 代为下载安装"),
+          onClick: askAiGpu
+        },
+          makeIcon(R, "sparkles", 13),
+          R.createElement("span", null, t("btn.aiGpu", "让 AI 帮装 GPU 后端"))
+        )
+      ),
 
       R.createElement("div", { className: "stl-actions" },
         R.createElement("button", {
@@ -716,9 +751,10 @@ export default function Panel({ api }) {
         R.createElement("span", { className: "stl-label" }, t("row.dir", "服务目录")),
         R.createElement("input", {
           className: "stl-input", type: "text", value: dir,
+          placeholder: t("ph.dir", "留空 = 插件内置服务目录"),
           onChange: (e) => { setDir(e.target.value); persist({ dir: e.target.value }); }
         }),
-        R.createElement("div", { className: "stl-hint" }, t("hint.dir", "包含 stt_server.py 的目录（whisper 运行时位于其 whisper/ 子目录）。"))
+        R.createElement("div", { className: "stl-hint" }, t("hint.dir", "包含 stt_server.py 的目录。留空时使用插件自带的内置服务目录，首次启动会自动下载 CPU 运行时。"))
       )
     ),
 

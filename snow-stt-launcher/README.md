@@ -39,7 +39,9 @@ Snow App **面板插件**：启动 / 停止 / 重启 / 状态检测「本地语�
 ## 前置条件
 
 1. **Python 3** 在 PATH 中可用。
-2. 服务目录内存在 `stt_server.py` 与 whisper 运行时（`whisper/bin/Release/whisper-cli.exe` 与 `whisper/ggml-*.bin`），即本仓库的 `snow-voice-io/stt-service`。面板中「服务目录」需填该目录（不随插件分发，需自行准备）。
+2. 无其它前置：`stt_server.py` 随插件自带（安装目录的 `stt-service/` 子目录），面板「服务目录」**留空即可**；首次启动自动下载 CPU 版 whisper 运行时（约 5 MB，走代理设置），识别模型在面板「模型库」下载。
+
+> GPU 加速（可选）：在面板点「让 AI 帮装 GPU 后端」，把安装指引发给 AI 代装 CUDA / Vulkan 后端；或按 `snow-voice-io/stt-service/README.md` 手动安装。
 
 ## 与客户端脚本的关系
 

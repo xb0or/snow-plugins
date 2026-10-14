@@ -8,7 +8,7 @@
     "default": "Start / stop / restart the local whisper.cpp transcription service and manage its models. Use together with the \"Local Speech Service\" client script — this panel only runs the service, it provides no voice input by itself.",
     "zh-CN": "启动 / 停止 / 重启本地 whisper.cpp 转写服务并管理识别模型。需与「本地语音服务」客户端脚本配合使用：本面板只负责起服务，本身不提供语音输入。"
   },
-  "version": "1.4.3",
+  "version": "1.5.0",
   "author": "kedou",
   "license": "MIT",
   "icon": "lucide:AudioWaveform",

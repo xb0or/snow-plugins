@@ -30,8 +30,8 @@ Snow App 客户端脚本：**语音输入（本地 Whisper）** + **AI 回复朗
 
 1. 安装脚本：把 `snow-voice-io.user.js` 装入 Snow App（插件 → 插件列表 → 脚本插件 → 导入文件），或在会话中让 AI 用 `config-set scope=userscripts` 安装。
 2. 启动本地 STT 服务，两种方式任选：
-   - **面板插件（推荐）**：安装配套的「本地语音服务」面板插件，在面板里点「启动」。
-   - **命令行**：运行 `stt-service/start.ps1`（见 `stt-service/README.md`）。
+   - **面板插件（推荐）**：安装配套的「本地语音服务」面板插件，在面板里点「启动」——服务目录留空即可（`stt_server.py` 随插件自带，首次启动自动下载 CPU 运行时，模型在面板模型库下载）。
+   - **命令行**：运行 `stt-service/start.ps1`（见 `stt-service/README.md`，仅源码仓库内提供）。
 3. 在输入栏点齿轮 → 状态区点「检测」，确认转写服务可用。
 
 ## 依赖与边界（实测结论）

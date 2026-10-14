@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Speech Service
 // @namespace    kedou
-// @version      1.4.3
+// @version      1.5.0
 // @description  语音输入（本地 Whisper 服务）+ AI 回复朗读（系统 TTS）
 // @author       kedou
 // @license      MIT
