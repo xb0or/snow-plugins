@@ -20,7 +20,7 @@
 .apx-mc-table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 430px;
+  min-width: 500px;
   font-size: 11px;
 }
 
@@ -98,6 +98,31 @@
   background: #ef4444;
   margin-left: 4px;
   vertical-align: middle;
+}
+
+/* 模型列：超长截断，完整“模型 @ 档案”放在 title 属性 */
+.apx-mc-model {
+  display: inline-block;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-family: ui-monospace, monospace;
+}
+
+.apx-mc-model-empty {
+  opacity: 0.45;
+}
+
+/* 标题行当前模型胶囊 */
+.apx-mc-model-head {
+  max-width: 180px;
+  font-weight: 400;
+  font-size: 10px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 8px;
+  padding: 0 6px;
 }
 
 /* 状态徽章 */

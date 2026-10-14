@@ -2,10 +2,10 @@
   "id": "com.seagull.tps-metrics",
   "name": { "default": "Mission Control", "zh-CN": "任务中心" },
   "description": {
-    "default": "Industry-convention TPS / TTFT metrics plus a live overview of all running sessions (including sub-agents)",
-    "zh-CN": "按行业口径计算 TPS/TTFT，并汇总全部运行中会话（含子代理）的实时状态"
+    "default": "Industry-convention TPS / TTFT metrics plus a live overview of all running sessions (including sub-agents), with per-session model display",
+    "zh-CN": "按行业口径计算 TPS/TTFT，并汇总全部运行中会话（含子代理）的实时状态与各会话使用的模型"
   },
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "kedou",
   "license": "MIT",
   "icon": "lucide:Activity",

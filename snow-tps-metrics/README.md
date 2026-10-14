@@ -1,6 +1,6 @@
 # snow-tps-metrics
 
-Snow App 面板插件：按行业惯例口径计算当前会话的 TPS、TTFT 等流式指标。
+Snow App 面板插件：按行业惯例口径计算当前会话的 TPS、TTFT 等流式指标，并显示各会话当前使用的模型。
 
 ## 口径
 
@@ -15,7 +15,7 @@ Snow App 面板插件：按行业惯例口径计算当前会话的 TPS、TTFT �
 ## 数据源
 
 - `runtime` 元数据域（免声明，live 推送）：流式 token 数、起始时间、TTFT、并发会话列表
-- `conversations` 元数据域（敏感域）：会话累计 token/耗时/请求数
+- `conversations` 元数据域（敏感域）：会话累计 token/耗时/请求数，以及会话的 `model` / `apiProfileName`（总览表“模型”列与标题行当前模型）
 
 ## 安装
 

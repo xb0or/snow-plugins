@@ -13,6 +13,8 @@
 //          ttftMs / runTtftMs / startedAt
 //   conversations 域（敏感域，已在 plugin.json 声明）：
 //     会话累计 outputTokens / totalDurationMs / runTtftSumMs / runRequestCount
+//     会话记录的 model / apiProfileName —— 总览表“模型”列与标题行当前模型的数据源；
+//       域按激活项目拉取，其他项目的运行中会话查不到模型，显示“—”
 // 口径约定：
 //   TTFT      = run 开始到首个 token 的耗时
 //   解码 TPS  = tokenCount / (elapsedMs - TTFT)，行业基准惯例（如 vLLM benchmark_serving）
@@ -90,7 +92,7 @@ function sessionAverages(item) {
   };
 }
 
-function Row(label, value) {
+function Row(label, value, valueTitle) {
   return React.createElement(
     "div",
     {
@@ -104,7 +106,10 @@ function Row(label, value) {
     ),
     React.createElement(
       "span",
-      { style: { fontFamily: "ui-monospace, monospace", textAlign: "right" } },
+      {
+        style: { fontFamily: "ui-monospace, monospace", textAlign: "right" },
+        title: valueTitle || undefined,
+      },
       value,
     ),
   );
@@ -210,11 +215,21 @@ export default function Panel({ api }) {
   }, []);
 
   const c = rt && rt.conversation ? rt.conversation : null;
+  const convItems = conv && Array.isArray(conv.items) ? conv.items : [];
   const convItem =
     c && conv
-      ? (conv.items || []).find((x) => x.conversationId === c.conversationId)
+      ? convItems.find((x) => x.conversationId === c.conversationId)
       : null;
   const averages = sessionAverages(convItem);
+
+  // conversationId → 会话记录（model / apiProfileName），供总览表模型列查询
+  const convById = new Map();
+  for (const it of convItems) {
+    if (it && it.conversationId) convById.set(it.conversationId, it);
+  }
+  const currentModel = convItem && convItem.model ? convItem.model : null;
+  const currentProfile =
+    convItem && convItem.apiProfileName ? convItem.apiProfileName : null;
 
   const liveElapsed = c
     ? Number.isFinite(c.streamElapsedMs)
@@ -251,6 +266,12 @@ export default function Panel({ api }) {
     const status = sessionStatus(s);
     const isCurrent = c && s.conversationId === c.conversationId;
     const needsAttention = attentionIds.has(s.conversationId);
+    const convRec = s.conversationId ? convById.get(s.conversationId) : null;
+    const rowModel = convRec && convRec.model ? convRec.model : null;
+    const rowModelTitle =
+      rowModel && convRec && convRec.apiProfileName
+        ? rowModel + " @ " + convRec.apiProfileName
+        : rowModel || undefined;
     return el(
       "tr",
       {
@@ -277,6 +298,13 @@ export default function Panel({ api }) {
           : null,
       ),
       el("td", { className: "apx-mc-cell" }, el("span", { className: status.cls }, status.label)),
+      el(
+        "td",
+        { className: "apx-mc-cell" },
+        rowModel
+          ? el("span", { className: "apx-mc-model", title: rowModelTitle }, rowModel)
+          : el("span", { className: "apx-mc-model apx-mc-model-empty", title: "该会话不在当前项目，模型未知" }, "—"),
+      ),
       el("td", { className: "apx-mc-cell apx-mc-num" }, fmtTps(decodeTps(s.tokenCount || 0, elapsed, ttft))),
       el("td", { className: "apx-mc-cell apx-mc-num" }, fmtTps(inst[s.sessionKey])),
       el("td", { className: "apx-mc-cell apx-mc-num" }, fmtMs(ttft)),
@@ -302,6 +330,7 @@ export default function Panel({ api }) {
                 null,
                 el("th", { className: "apx-mc-head" }, "会话"),
                 el("th", { className: "apx-mc-head" }, "状态"),
+                el("th", { className: "apx-mc-head" }, "模型"),
                 el("th", { className: "apx-mc-head" }, "解码 TPS"),
                 el("th", { className: "apx-mc-head" }, "瞬时 TPS"),
                 el("th", { className: "apx-mc-head" }, "TTFT"),
@@ -323,6 +352,16 @@ export default function Panel({ api }) {
       { style: { display: "flex", alignItems: "center", gap: 6, fontWeight: 600 } },
       Icons.Activity ? el(Icons.Activity, { size: 14 }) : null,
       "任务中心",
+      currentModel
+        ? el(
+            "span",
+            {
+              className: "apx-mc-model apx-mc-model-head",
+              title: currentProfile ? currentModel + " @ " + currentProfile : currentModel,
+            },
+            currentModel,
+          )
+        : null,
       c && c.isStreaming
         ? el(
             "span",
@@ -375,6 +414,11 @@ export default function Panel({ api }) {
     c
       ? [
           Row("会话", c.title || c.conversationId),
+          Row(
+            "模型",
+            currentModel || "未知（conversations 域未返回）",
+            currentProfile ? (currentModel || "") + " @ " + currentProfile : undefined,
+          ),
           Row(
             "TTFT（首 token 延迟）",
             c.isStreaming && !Number.isFinite(liveTtft)
