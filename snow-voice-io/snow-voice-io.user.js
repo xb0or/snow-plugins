@@ -1,7 +1,8 @@
 // ==UserScript==
-// @name         Local Speech Service
+// @name         语音输入与朗读
+// @name:en      Voice Input & Read Aloud
 // @namespace    kedou
-// @version      1.5.0
+// @version      1.5.2
 // @description  语音输入（本地 Whisper 服务）+ AI 回复朗读（系统 TTS）
 // @author       kedou
 // @license      MIT

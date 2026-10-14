@@ -1,7 +1,8 @@
 // ==UserScript==
-// @name         snow-notify-hub
+// @name         回合结束通知中心
+// @name:en      Turn-end Notifier
 // @namespace    kedou
-// @version      1.4.2
+// @version      1.4.3
 // @description  回合结束通知中心：多渠道推送（Server酱 / PushPlus / Bark / 钉钉 / 企业微信 / Telegram / 飞书）+ 提示音 + 应用内提示；支持后台会话（非当前打开会话）完成提醒
 // @author       kedou
 // @license      MIT
