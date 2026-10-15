@@ -36,7 +36,7 @@
     "zh-HK": "基於 hack.chat 的匿名聊天面板（經本機橋接程序連接，宿主網路策略禁止面板直連外網）。",
     "zh-MO": "基於 hack.chat 的匿名聊天面板（經本機橋接程序連接，宿主網路策略禁止面板直連外網）。"
   },
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "kedou",
   "license": "MIT",
   "icon": "lucide:MessagesSquare",

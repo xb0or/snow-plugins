@@ -44,6 +44,162 @@ function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// ------------------------- Markdown 渲染（与官方客户端对齐的安全子集） -------------------------
+// 官方客户端支持（经其 bundle i18n 帮助文案 + README + 主题 CSS 核实）：
+//   完整 Markdown 引擎、```[语言] 代码```（highlight.js 语法高亮）、$..$ 行内公式（KaTeX）、
+//   图片（loadSafeImages/loadUnsafeImages 设置）、提及高亮、表格/标题/引用/分隔线等。
+// 本面板实现子集：
+//   行内：**粗体** *斜体* ~~删除线~~ `行内码` [文字](http链接) ![图](http图) 裸链接自动识别 $公式$（以源码样式呈现）
+//   块级：```代码块```（带语言标签，等宽不高亮） # 标题 > 引用 --- 分隔线 列表 GFM 表格
+// 安全策略：不解析任何原始 HTML；产出纯数据结构，由 React 元素渲染（自动转义）；
+//           链接/图片仅放行 http(s)；外链图片经宿主 img-proxy 协议加载（CSP img-src 仅允许 img-proxy:）。
+// 已知差距（无法在本机核实的部分）：highlight.js 语法着色与 KaTeX 排版未实现（代码块等宽呈现、
+//           公式以源码样式呈现）；spoiler 语法（官方 lazy chunk 内，本机无法核实）未实现。
+
+const MD_INLINE_SRC = [
+  "(`+)([\\s\\S]*?[^`])\\1",                                  // 1,2 行内码
+  "!\\[([^\\]\\n]*)\\]\\(([^()\\s]+)\\)",                      // 3,4 图片 ![alt](url)
+  "\\[([^\\]\\n]*)\\]\\(([^()\\s]+)\\)",                       // 5,6 链接 [text](url)
+  "(https?://[^\\s<>\"'\\]\\)]+)",                             // 7 裸链接
+  "\\*\\*([\\s\\S]+?)\\*\\*",                                  // 8 粗体（允许内部单个 *）
+  "\\*([^*\\n]+)\\*",                                          // 9 斜体
+  "~~([^~\\n]+)~~",                                            // 10 删除线
+  "\\$\\$(?!\\s)([^$\\n]*[^\\s$])\\$\\$",                      // 11 显示公式（内容不以空白结尾）
+  "\\$(?!\\s)([^$\\n]*[^\\s$])\\$",                            // 12 行内公式（内容不以空白结尾，降低 $5/$10 误判）
+].join("|");
+
+function mdSafeHref(u) {
+  const t = String(u || "").trim();
+  return /^https?:\/\//i.test(t) ? t : "";
+}
+
+function mdImgProxyUrl(u) {
+  // 宿主 CSP：img-src 'self' data: blob: theme-bg: img-proxy:
+  // 外链 http(s) 图片必须改写为 img-proxy://localhost/<encodeURIComponent(url)>
+  return "img-proxy://localhost/" + encodeURIComponent(u);
+}
+
+// 行内解析：返回 token 数组（string 或 {b|i|s|code|a|img|math}）
+// 注意：正则必须是局部实例——parseInline 递归调用时共享 /g 正则会互相重置 lastIndex 导致死循环
+function parseInline(src, noLinks) {
+  const text = String(src == null ? "" : src);
+  if (!text) return [];
+  const re = new RegExp(MD_INLINE_SRC, "g");
+  const out = [];
+  let last = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m[2] !== undefined) {
+      out.push({ code: m[2] });
+    } else if (m[3] !== undefined || m[5] !== undefined) {
+      const isImg = m[3] !== undefined;
+      const desc = isImg ? m[3] : m[5];
+      const url = isImg ? m[4] : m[6];
+      const href = mdSafeHref(url);
+      if (!href) {
+        // 非 http(s) 目标（含 javascript: 等）：按纯文本呈现，绝不生成链接/图片
+        out.push(text.slice(m.index, re.lastIndex));
+      } else if (isImg) {
+        out.push({ img: { src: href, alt: desc } });
+      } else if (noLinks) {
+        out.push(text.slice(m.index, re.lastIndex));
+      } else {
+        out.push({ a: { href, text: parseInline(desc, true) } });
+      }
+    } else if (m[7] !== undefined) {
+      let url = m[7];
+      let trail = "";
+      const tm = /[.,;:!?]+$/.exec(url);
+      if (tm) { trail = tm[0]; url = url.slice(0, url.length - trail.length); }
+      out.push({ a: { href: url, text: [url] } });
+      if (trail) out.push(trail);
+    } else if (m[8] !== undefined) {
+      out.push({ b: parseInline(m[8]) });
+    } else if (m[9] !== undefined) {
+      out.push({ i: parseInline(m[9]) });
+    } else if (m[10] !== undefined) {
+      out.push({ s: parseInline(m[10]) });
+    } else if (m[11] !== undefined) {
+      out.push({ math: { tex: m[11], display: true } });
+    } else if (m[12] !== undefined) {
+      out.push({ math: { tex: m[12], display: false } });
+    }
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+const MD_FENCE_RE = /^\s*```/;
+const MD_HR_RE = /^\s{0,3}(?:---+|\*\*\*+|___+)\s*$/;
+const MD_H_RE = /^(#{1,6})\s+(.*)$/;
+const MD_QUOTE_RE = /^\s*>\s?/;
+const MD_UL_RE = /^\s*[-*+]\s+(.*)$/;
+const MD_OL_RE = /^\s*\d+[.)]\s+(.*)$/;
+const MD_TABLE_SEP_RE = /^\s*\|?(?:[\s:|-]*-[\s:|-]*)\|[\s:|-]*$/;
+
+// 块级解析：返回块数组
+function parseBlocks(src) {
+  const lines = String(src == null ? "" : src).replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (MD_FENCE_RE.test(line)) {
+      const lang = line.trim().replace(/^```/, "").trim();
+      const buf = [];
+      i++;
+      while (i < lines.length && !MD_FENCE_RE.test(lines[i])) { buf.push(lines[i]); i++; }
+      if (i < lines.length) i++; // 跳过闭合 ```（或 EOF）
+      blocks.push({ type: "code", lang, text: buf.join("\n") });
+      continue;
+    }
+    if (/^\s*$/.test(line)) { i++; continue; }
+    if (MD_HR_RE.test(line)) { blocks.push({ type: "hr" }); i++; continue; }
+    const hm = MD_H_RE.exec(line);
+    if (hm) { blocks.push({ type: "h", level: hm[1].length, inlines: parseInline(hm[2]) }); i++; continue; }
+    if (MD_QUOTE_RE.test(line)) {
+      const buf = [];
+      while (i < lines.length && MD_QUOTE_RE.test(lines[i])) { buf.push(lines[i].replace(MD_QUOTE_RE, "")); i++; }
+      blocks.push({ type: "quote", blocks: parseBlocks(buf.join("\n")) });
+      continue;
+    }
+    if (line.includes("|") && i + 1 < lines.length && MD_TABLE_SEP_RE.test(lines[i + 1])) {
+      const rowOf = (l) => l.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+      const head = rowOf(line);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].includes("|") && !/^\s*$/.test(lines[i])) { rows.push(rowOf(lines[i])); i++; }
+      blocks.push({ type: "table", head: head.map((c) => parseInline(c)), rows: rows.map((r) => r.map((c) => parseInline(c))) });
+      continue;
+    }
+    if (MD_UL_RE.test(line) || MD_OL_RE.test(line)) {
+      const ol = MD_OL_RE.test(line);
+      const re = ol ? MD_OL_RE : MD_UL_RE;
+      const items = [];
+      while (i < lines.length) {
+        const lm = re.exec(lines[i]);
+        if (!lm) break;
+        items.push(parseInline(lm[1]));
+        i++;
+      }
+      blocks.push({ type: ol ? "ol" : "ul", items });
+      continue;
+    }
+    // 段落：连续行直到空行或其它块级起始
+    const buf = [line];
+    i++;
+    while (
+      i < lines.length && !/^\s*$/.test(lines[i]) && !MD_FENCE_RE.test(lines[i]) &&
+      !MD_HR_RE.test(lines[i]) && MD_H_RE.test(lines[i]) === false && !MD_QUOTE_RE.test(lines[i]) &&
+      !MD_UL_RE.test(lines[i]) && !MD_OL_RE.test(lines[i])
+    ) { buf.push(lines[i]); i++; }
+    blocks.push({ type: "p", inlines: parseInline(buf.join("\n")) });
+  }
+  return blocks;
+}
+
 // 服务器 color 为 6 位 hex（无 #）；非法值回退到昵称哈希色
 function userColor(nick, serverColor) {
   if (typeof serverColor === "string" && /^[0-9a-fA-F]{6}$/.test(serverColor)) {
@@ -396,7 +552,7 @@ class HackChatClient extends Emitter {
     setTimeout(() => { try { ws && ws.close(); } catch (e) { /* 忽略 */ } }, 400);
   }
 }
-export { HackChatClient, NICK_RE, userColor, escapeRegExp };
+export { HackChatClient, NICK_RE, userColor, escapeRegExp, parseInline, parseBlocks, mdInlineToReact, mdBlocksToReact, mdImgProxyUrl };
 
 // ------------------------- React UI -------------------------
 const { React } = window.SnowAppPlugin;
@@ -407,6 +563,83 @@ function iconEl(name, size) {
   const C = window.SnowAppPlugin.icons && window.SnowAppPlugin.icons[name];
   if (!C) return null;
   return h(C, { size: size || 14 });
+}
+
+// ---- Markdown 数据结构 -> React 元素（全部经 createElement，无 innerHTML） ----
+function mdInlineToReact(nodes, keyPrefix) {
+  const out = [];
+  const arr = Array.isArray(nodes) ? nodes : [nodes];
+  for (let idx = 0; idx < arr.length; idx++) {
+    const n = arr[idx];
+    const key = keyPrefix + "-" + idx;
+    if (typeof n === "string") { out.push(n); continue; }
+    if (n && n.code !== undefined) { out.push(h("code", { key, className: "sacx-md-code" }, n.code)); continue; }
+    if (n && n.b) { out.push(h("strong", { key }, mdInlineToReact(n.b, key))); continue; }
+    if (n && n.i) { out.push(h("em", { key }, mdInlineToReact(n.i, key))); continue; }
+    if (n && n.s) { out.push(h("del", { key }, mdInlineToReact(n.s, key))); continue; }
+    if (n && n.math) {
+      out.push(h("span", {
+        key, className: "sacx-md-math" + (n.math.display ? " is-display" : ""), title: n.math.tex,
+      }, n.math.tex));
+      continue;
+    }
+    if (n && n.img) {
+      // 外链图片经宿主 img-proxy 加载（CSP img-src 不放行直连外链）
+      out.push(h("img", {
+        key, className: "sacx-md-img", alt: n.img.alt || "", title: n.img.alt || "",
+        src: mdImgProxyUrl(n.img.src), loading: "lazy",
+        onError: (e) => { e.currentTarget.style.display = "none"; },
+      }));
+      continue;
+    }
+    if (n && n.a) {
+      out.push(h("a", {
+        key, className: "sacx-md-link", href: n.a.href, target: "_blank",
+        rel: "noopener noreferrer nofollow",
+      }, mdInlineToReact(n.a.text, key)));
+      continue;
+    }
+    out.push(String(n));
+  }
+  return out;
+}
+
+function mdBlocksToReact(blocks, keyPrefix) {
+  const out = [];
+  for (let idx = 0; idx < blocks.length; idx++) {
+    const b = blocks[idx];
+    const key = keyPrefix + "-" + idx;
+    if (b.type === "code") {
+      out.push(h("pre", { key, className: "sacx-md-pre" },
+        b.lang ? h("span", { key: key + "-lang", className: "sacx-md-lang" }, b.lang) : null,
+        h("code", { key: key + "-c" }, b.text)));
+    } else if (b.type === "p") {
+      out.push(h("span", { key, className: "sacx-md-p" }, mdInlineToReact(b.inlines, key)));
+    } else if (b.type === "h") {
+      const tag = "h" + Math.min(6, Math.max(1, b.level));
+      out.push(h(tag, { key, className: "sacx-md-h" }, mdInlineToReact(b.inlines, key)));
+    } else if (b.type === "hr") {
+      out.push(h("hr", { key, className: "sacx-md-hr" }));
+    } else if (b.type === "quote") {
+      out.push(h("blockquote", { key, className: "sacx-md-quote" }, mdBlocksToReact(b.blocks, key)));
+    } else if (b.type === "ul" || b.type === "ol") {
+      out.push(h(b.type === "ul" ? "ul" : "ol", { key, className: "sacx-md-list" },
+        b.items.map((it, j) => h("li", { key: key + "-li" + j }, mdInlineToReact(it, key + "-li" + j)))));
+    } else if (b.type === "table") {
+      out.push(h("table", { key, className: "sacx-md-table" },
+        h("thead", { key: key + "-th" }, h("tr", { key: key + "-thr" },
+          b.head.map((c, j) => h("th", { key: key + "-th" + j }, mdInlineToReact(c, key + "-th" + j))))),
+        h("tbody", { key: key + "-tb" },
+          b.rows.map((r, ri) => h("tr", { key: key + "-tr" + ri },
+            r.map((c, j) => h("td", { key: key + "-td" + ri + "-" + j }, mdInlineToReact(c, key + "-td" + ri + "-" + j))))))));
+    }
+  }
+  return out;
+}
+
+// 消息正文渲染入口：Markdown 安全子集 -> React 元素数组
+function mdRender(text) {
+  return mdBlocksToReact(parseBlocks(text), "md");
 }
 
 function fmtTime(ts) {
@@ -471,10 +704,20 @@ function SettingsModal({ api, cfg, connected, onSave, onClose, onDisconnect, onR
       setErr(t("settings.proxyInvalid", ""));
       return;
     }
+    // 固定昵称非空时校验格式：非法昵称连接时会被静默忽略（表现为“固定昵称不生效”），保存前拦截
+    const nk = nick.trim();
+    if (nk !== "" && !NICK_RE.test(nk)) {
+      setErr(t("settings.nickInvalid", "", { nick: nk }));
+      return;
+    }
     setErr("");
-    onSave({ nick: nick.trim(), bridgePort: bridgePort.trim() === "" ? "" : p, proxyUrl: pu, autoConnect });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    const r = onSave({ nick: nk, bridgePort: bridgePort.trim() === "" ? "" : p, proxyUrl: pu, autoConnect });
+    // onSave 返回 false 表示写入本地存储失败：显式报错，不再假装保存成功
+    Promise.resolve(r).then((ok) => {
+      if (ok === false) { setErr(t("settings.saveFailed", "")); return; }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    });
   };
   return h("div", { className: "sacx-overlay", onClick: (e) => { if (e.target === e.currentTarget) onClose(); } },
     h("div", { className: "sacx-modal" },
@@ -519,6 +762,18 @@ function SettingsModal({ api, cfg, connected, onSave, onClose, onDisconnect, onR
         h("button", { className: "sacx-btn sacx-btn-primary", onClick: save }, t("settings.save", "保存")))));
 }
 
+// ---- 格式帮助浮层：列出手写格式写法（纯文本展示，不走 Markdown 渲染） ----
+function FormatHelpModal({ api, onClose }) {
+  const t = (k, dv) => api.t(k, { defaultValue: dv });
+  return h("div", { className: "sacx-overlay", onClick: (e) => { if (e.target === e.currentTarget) onClose(); } },
+    h("div", { className: "sacx-modal" },
+      h("h3", null, iconEl("CircleHelp", 16), t("formats.title", "消息格式")),
+      h("div", { className: "sacx-modal-body" },
+        h("div", { className: "sacx-formats-help" }, t("formats.help", ""))),
+      h("div", { className: "sacx-modal-actions" },
+        h("button", { className: "sacx-btn sacx-btn-primary", onClick: onClose }, t("rename.cancel", "取消")))));
+}
+
 // ---- 改名浮层 ----
 function RenamePopover({ api, current, onApply, onClose }) {
   const [val, setVal] = useState(current || "");
@@ -555,6 +810,7 @@ export default function Panel({ api }) {
   const [cfgLoaded, setCfgLoaded] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showFormats, setShowFormats] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [status, setStatus] = useState("idle");
   const [messages, setMessages] = useState([]);
@@ -590,6 +846,9 @@ export default function Panel({ api }) {
       try { saved = await api.storage.getJson(STORAGE_KEY); } catch (e) { saved = null; }
       const merged = Object.assign({}, DEFAULT_CFG, saved || {});
       cfgRef.current = merged;
+      // 关键：client 在本 effect 同步段创建（早于上面的 await），持有的是加载前的旧 cfg 对象；
+      // 必须回写同步，否则首次连接按旧配置解析昵称/端口/代理（固定昵称失效的根因）
+      if (clientRef.current) clientRef.current.cfg = merged;
       if (!disposed) { setCfg(merged); setCfgLoaded(true); }
     })();
 
@@ -819,12 +1078,23 @@ export default function Panel({ api }) {
   }, []);
 
   const saveSettings = useCallback(async (partial) => {
-    const next = Object.assign({}, cfgRef.current, partial);
+    const prev = cfgRef.current;
+    const next = Object.assign({}, prev, partial);
     cfgRef.current = next;
     setCfg(next);
     if (clientRef.current) clientRef.current.cfg = next;
-    try { await api.storage.setJson(STORAGE_KEY, next); } catch (e) { /* 存储失败不阻塞 UI */ }
+    try {
+      await api.storage.setJson(STORAGE_KEY, next);
+    } catch (e) {
+      // 存储写入失败不能静默：回滚内存态并显式报错，避免“看起来保存了”的假象
+      cfgRef.current = prev;
+      setCfg(prev);
+      if (clientRef.current) clientRef.current.cfg = prev;
+      sysMsg("settings.saveFailed", {}, "error");
+      return false;
+    }
     sysMsg("settings.savedHint", {}, "system");
+    return true;
   }, [api, sysMsg]);
 
   // 重置自动昵称：下次连接重新生成一个
@@ -882,6 +1152,11 @@ export default function Panel({ api }) {
       title: t("header.rename", ""),
       onClick: () => setShowRename(true),
     }, iconEl("PencilLine", 12), myNick || t("status.offline", "")),
+    h("button", {
+      className: "sacx-icon-btn" + (showFormats ? " is-active" : ""),
+      title: t("formats.title", "消息格式"),
+      onClick: () => setShowFormats(true),
+    }, iconEl("CircleHelp", 15)),
     h("button", {
       className: "sacx-icon-btn" + (showSettings ? " is-active" : ""),
       title: t("header.settings", ""),
@@ -950,6 +1225,9 @@ export default function Panel({ api }) {
       onDecline: showDisclaimer ? () => setShowDisclaimer(false) : () => {},
     }));
   }
+  if (showFormats) {
+    rootChildren.push(h(FormatHelpModal, { key: "formats", api, onClose: () => setShowFormats(false) }));
+  }
   if (showSettings) {
     rootChildren.push(h(SettingsModal, {
       key: "settings", api, cfg, connected,
@@ -993,8 +1271,9 @@ export default function Panel({ api }) {
         style: { color: userColor(m.nick, m.color) },
         title: m.nick,
       }, m.nick),
-      h("span", { className: "sacx-msg-text" + (m.isAction ? " is-action" : "") },
-        m.isAction ? h("i", null, m.text) : m.text));
+      h("span", {
+        className: "sacx-msg-text" + (m.isAction ? " is-action" : ""),
+      }, m.isAction ? h("i", null, mdRender(m.text)) : mdRender(m.text)));
   }
 }
 
