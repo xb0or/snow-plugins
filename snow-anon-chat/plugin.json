@@ -1,0 +1,93 @@
+{
+  "id": "com.seagull.snow-anon-chat",
+  "name": {
+    "default": "Snow Anonymous Chat",
+    "en": "Snow Anonymous Chat",
+    "zh": "Snow 匿名聊天",
+    "zh-CN": "Snow 匿名聊天",
+    "zh-cn": "Snow 匿名聊天",
+    "zh_CN": "Snow 匿名聊天",
+    "zh-Hans": "Snow 匿名聊天",
+    "zh-Hans-CN": "Snow 匿名聊天",
+    "zh-SG": "Snow 匿名聊天",
+    "zh-TW": "Snow 匿名聊天",
+    "zh-tw": "Snow 匿名聊天",
+    "zh_TW": "Snow 匿名聊天",
+    "zh-Hant": "Snow 匿名聊天",
+    "zh-Hant-TW": "Snow 匿名聊天",
+    "zh-HK": "Snow 匿名聊天",
+    "zh-MO": "Snow 匿名聊天"
+  },
+  "description": {
+    "default": "Anonymous chat panel for hack.chat via a local bridge process (host CSP blocks direct external WebSocket).",
+    "en": "Anonymous chat panel for hack.chat via a local bridge process (host CSP blocks direct external WebSocket).",
+    "zh": "基于 hack.chat 的匿名聊天面板（经本机桥接进程连接，宿主网络策略禁止面板直连外网）。",
+    "zh-CN": "基于 hack.chat 的匿名聊天面板（经本机桥接进程连接，宿主网络策略禁止面板直连外网）。",
+    "zh-cn": "基于 hack.chat 的匿名聊天面板（经本机桥接进程连接，宿主网络策略禁止面板直连外网）。",
+    "zh_CN": "基于 hack.chat 的匿名聊天面板（经本机桥接进程连接，宿主网络策略禁止面板直连外网）。",
+    "zh-Hans": "基于 hack.chat 的匿名聊天面板（经本机桥接进程连接，宿主网络策略禁止面板直连外网）。",
+    "zh-Hans-CN": "基于 hack.chat 的匿名聊天面板（经本机桥接进程连接，宿主网络策略禁止面板直连外网）。",
+    "zh-SG": "基于 hack.chat 的匿名聊天面板（经本机桥接进程连接，宿主网络策略禁止面板直连外网）。",
+    "zh-TW": "基於 hack.chat 的匿名聊天面板（經本機橋接程序連接，宿主網路策略禁止面板直連外網）。",
+    "zh-tw": "基於 hack.chat 的匿名聊天面板（經本機橋接程序連接，宿主網路策略禁止面板直連外網）。",
+    "zh_TW": "基於 hack.chat 的匿名聊天面板（經本機橋接程序連接，宿主網路策略禁止面板直連外網）。",
+    "zh-Hant": "基於 hack.chat 的匿名聊天面板（經本機橋接程序連接，宿主網路策略禁止面板直連外網）。",
+    "zh-Hant-TW": "基於 hack.chat 的匿名聊天面板（經本機橋接程序連接，宿主網路策略禁止面板直連外網）。",
+    "zh-HK": "基於 hack.chat 的匿名聊天面板（經本機橋接程序連接，宿主網路策略禁止面板直連外網）。",
+    "zh-MO": "基於 hack.chat 的匿名聊天面板（經本機橋接程序連接，宿主網路策略禁止面板直連外網）。"
+  },
+  "version": "0.4.0",
+  "author": "kedou",
+  "license": "MIT",
+  "icon": "lucide:MessagesSquare",
+  "renderMode": "esm",
+  "entry": "index.js",
+  "panels": [
+    {
+      "id": "main",
+      "title": {
+        "default": "Snow Anonymous Chat",
+        "en": "Snow Anonymous Chat",
+        "zh": "Snow 匿名聊天",
+        "zh-CN": "Snow 匿名聊天",
+        "zh-cn": "Snow 匿名聊天",
+        "zh_CN": "Snow 匿名聊天",
+        "zh-Hans": "Snow 匿名聊天",
+        "zh-Hans-CN": "Snow 匿名聊天",
+        "zh-SG": "Snow 匿名聊天",
+        "zh-TW": "Snow 匿名聊天",
+        "zh-tw": "Snow 匿名聊天",
+        "zh_TW": "Snow 匿名聊天",
+        "zh-Hant": "Snow 匿名聊天",
+        "zh-Hant-TW": "Snow 匿名聊天",
+        "zh-HK": "Snow 匿名聊天",
+        "zh-MO": "Snow 匿名聊天"
+      },
+      "icon": "lucide:MessagesSquare",
+      "widthHint": "420"
+    }
+  ],
+  "locales": {
+    "default": "locales/en.json",
+    "en": "locales/en.json",
+    "zh": "locales/zh-CN.json",
+    "zh-CN": "locales/zh-CN.json",
+    "zh-cn": "locales/zh-CN.json",
+    "zh_CN": "locales/zh-CN.json",
+    "zh-Hans": "locales/zh-CN.json",
+    "zh-Hans-CN": "locales/zh-CN.json",
+    "zh-SG": "locales/zh-CN.json",
+    "zh-TW": "locales/zh-TW.json",
+    "zh-tw": "locales/zh-TW.json",
+    "zh_TW": "locales/zh-TW.json",
+    "zh-Hant": "locales/zh-TW.json",
+    "zh-Hant-TW": "locales/zh-TW.json",
+    "zh-HK": "locales/zh-TW.json",
+    "zh-MO": "locales/zh-TW.json"
+  },
+  "styles": ["style.css"],
+  "privacy": {
+    "scopes": ["terminal"],
+"note": "匿名聊天面板：不读取任何应用元数据。因宿主网络策略限制，面板经本机桥接进程（bridge/bridge.cjs，监听 localhost）连接 hack.chat；启动桥需要终端权限（terminal），桥进程的外部连接与代理由该权限覆盖。昵称与偏好仅保存在本插件私有存储；不持久化聊天记录。"
+  }
+}
