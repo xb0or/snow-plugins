@@ -8,7 +8,7 @@
     "default": "Start / stop / restart the local whisper.cpp transcription service and manage its models. Use together with the \"Local Speech Service\" client script — this panel only runs the service, it provides no voice input by itself.",
     "zh-CN": "启动 / 停止 / 重启本地 whisper.cpp 转写服务并管理识别模型。需与「本地语音服务」客户端脚本配合使用：本面板只负责起服务，本身不提供语音输入。"
   },
-  "version": "1.5.2",
+  "version": "1.5.3",
   "author": "kedou",
   "license": "MIT",
   "icon": "lucide:AudioWaveform",
@@ -30,7 +30,7 @@
   },
   "styles": ["style.css"],
   "privacy": {
-    "scopes": ["terminal"],
-    "note": "启动与停止本地语音服务需要创建终端会话以运行 Python 服务进程；所有操作仅在本机执行。"
+    "scopes": ["terminal", "network"],
+    "note": "启动与停止本地语音服务需要创建终端会话以运行 Python 服务进程（terminal）；状态检测与模型管理通过 api.net.fetch 请求本机回环地址 127.0.0.1 的服务端口（network）。所有操作仅在本机执行。"
   }
 }

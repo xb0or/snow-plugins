@@ -2,14 +2,14 @@
 // @name         回合结束通知中心
 // @name:en      Turn-end Notifier
 // @namespace    kedou
-// @version      1.4.3
+// @version      1.4.4
 // @description  回合结束通知中心：多渠道推送（Server酱 / PushPlus / Bark / 钉钉 / 企业微信 / Telegram / 飞书）+ 提示音 + 应用内提示；支持后台会话（非当前打开会话）完成提醒
 // @author       kedou
 // @license      MIT
 // @icon         lucide:BellRing
 // @snow-target  client
 // @snow-scope   global
-// @snow-privacy messages
+// @snow-privacy messages, network
 // @run-at       document-idle
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -31,6 +31,7 @@
  *  - 提示正文默认为会话名（来自运行时快照）；选「回复摘要」时前台读 DOM，
  *    后台读 messages 元数据域（需 @snow-privacy messages 声明）。
  *  - 推送全部走 snow.fetch（经主进程、无 CORS 限制）；凭据仅存本机 GM 值。
+ *  - snow.fetch 外发请求需声明 network 网络隐私域（@snow-privacy）。
  *  - 提示音由 Web Audio 现场合成，无外部音频资源，21 种预设。
  *  - 系统级通知（GM_notification）在本构建中静默失效（实测），故提示条为应用内自绘，配色跟随宿主主题。
  *  - 图标内嵌官方 Lucide SVG 路径（客户端脚本环境无全局 lucide 对象）。

@@ -36,7 +36,7 @@
     "zh-HK": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。",
     "zh-MO": "瀏覽聚合自公開源的社群技能索引（官方技能 / 本地技能 / 社群技能源 / skills.sh），支援搜尋、分類過濾、全域或專案級一鍵安裝或讓 AI 代裝到 Snow App。"
   },
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "kedou",
   "license": "MIT",
   "icon": "lucide:Store",
@@ -86,7 +86,7 @@
   },
   "styles": ["style.css"],
   "privacy": {
-    "scopes": [],
-    "note": "本插件不读取任何敏感元数据域：仅通过 api.net.fetch 拉取公开技能索引（走应用代理）、读取无需声明的 skills/theme 域用于展示已安装状态与跟随主题，并使用公开写动作 skills.installGithub 安装技能、chatInput.insertText 把安装请求写入输入框。索引缓存在插件私有 storage 中。数据来源与免责声明见 README.md。"
+    "scopes": ["network"],
+    "note": "本插件不读取任何敏感元数据域：通过 api.net.fetch 拉取公开技能索引（走应用代理，声明 network 网络隐私域），读取无需声明的 skills/theme 域用于展示已安装状态与跟随主题，并使用公开写动作 skills.installGithub 安装技能、chatInput.insertText 把安装请求写入输入框。索引缓存在插件私有 storage 中。数据来源与免责声明见 README.md。"
   }
 }

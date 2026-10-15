@@ -2,13 +2,14 @@
 // @name         语音输入与朗读
 // @name:en      Voice Input & Read Aloud
 // @namespace    kedou
-// @version      1.5.2
+// @version      1.5.3
 // @description  语音输入（本地 Whisper 服务）+ AI 回复朗读（系统 TTS）
 // @author       kedou
 // @license      MIT
 // @icon         lucide:Mic
 // @snow-target  client
 // @snow-scope   global
+// @snow-privacy network
 // @run-at       document-idle
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -25,7 +26,7 @@
  * 说明：
  *  - 转写走本机回环 HTTP（snow.fetch 允许 loopback，实测确认），不依赖任何外部 API。
  *  - UI 配色全部走宿主主题 CSS 变量，自动跟随明暗主题；图标内嵌官方 Lucide SVG 路径。
- *  - 不声明敏感隐私域：朗读文本从聊天 DOM 读取（chat.message 锚点）。
+ *  - 不读取应用元数据；snow.fetch 外发请求需声明 network 网络隐私域（@snow-privacy）。
  */
 
 (function () {

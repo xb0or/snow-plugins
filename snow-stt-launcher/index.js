@@ -16,14 +16,31 @@
  */
 
 const DEFAULT_PORT = 8791;
-/* 服务目录没有可用的默认值：stt-service 不随插件分发，必须由用户在「服务目录」中指定。
-   留空时启动动作会被拦截并提示，避免写死任何本机绝对路径。 */
+/* 服务目录留空 = 使用插件安装目录内置的 stt-service（v1.5.0 起随插件分发，
+   运行时定位见 startCore 的 dirExpr；CPU 运行时与模型由服务端自动下载）。 */
 const DEFAULT_DIR = "";
 const STORAGE_KEY = "stt-launcher.config";
 
 /* 终端命令执行后的等待时长：PowerShell 首次启动 + 加载 profile 需要时间，
    等待过短会在命令生效前就把终端关掉（曾导致"点停止无反应"）。 */
 const SHELL_SETTLE_MS = 4000;
+
+/* 推导一个「磁盘上真实存在」的目录，作为「服务目录留空」时的终端 cwd 兜底。
+   实测（探针验证）：插件的 import.meta.url 是 blob: URL（宿主读源码后动态 import），
+   window.location 指向 app.asar 内部的渲染器页面——两者都无法给出插件安装目录，
+   且 asar 内路径不能作为 PTY 的 cwd（CreateProcess 报 error 267）。
+   但 locationHref 中 app.asar 之前的宿主 resources 目录是真实目录，可用作 cwd。 */
+function detectHostResourcesDir() {
+  try {
+    const u = new URL(window.location.href);
+    if (u.protocol !== "file:") return "";
+    const p = decodeURIComponent(u.pathname);
+    const m = p.match(/^(.*)\/app\.asar\//);
+    if (!m) return "";
+    return m[1].replace(/^\/([A-Za-z]:)/, "$1").replace(/\/+$/, "").replace(/\//g, "\\");
+  } catch (e) { return ""; }
+}
+const HOST_RESOURCES_DIR = detectHostResourcesDir();
 
 /* 官方 Lucide SVG 路径（viewBox 0 0 24 24，stroke=currentColor，fill=none） */
 const ICON_PATHS = {
@@ -282,9 +299,12 @@ export default function Panel({ api }) {
 
   /* ---------- 在临时终端里执行命令 ---------- */
   const runInTerminal = useCallback(async (command, cwdOverride) => {
-    const useCwd = typeof cwdOverride === "string" ? cwdOverride : dir;
-    const opts = { cols: 100, rows: 24 };
-    if (useCwd && String(useCwd).trim()) opts.cwd = String(useCwd).trim();
+    /* terminal.create 要求 cwd 为非空的绝对路径，且必须指向磁盘真实目录
+       （asar 内路径会被 PTY 拒绝，error 267）。
+       优先级：调用方指定（用户填的服务目录）> 宿主 resources 目录 > C:\ 兜底。
+       统一转反斜杠；真正的工作目录由命令自身处理（$d / Test-Path / -WorkingDirectory）。 */
+    const raw = (typeof cwdOverride === "string" ? cwdOverride : dir) || HOST_RESOURCES_DIR || "";
+    const opts = { cwd: String(raw).trim().replace(/\//g, "\\") || "C:\\", cols: 100, rows: 24 };
     const created = await api.write.run("terminal.create", opts);
     if (!created || !created.ok || !created.data || !created.data.terminalId) {
       throw new Error((created && created.error) || t("err.terminalCreate", "无法创建终端"));
@@ -307,7 +327,8 @@ export default function Panel({ api }) {
      模型与后端偏好在这里通过环境变量下发给服务进程，因此未启动时也能先选好。 */
   const startCore = useCallback(async (p, d, mp, bm) => {
     const useDir = String(d || "").trim();
-    /* 服务目录留空 = 使用插件安装目录内置的 stt-service（stt_server.py 随插件分发） */
+    /* 服务目录留空 = 使用插件安装目录内置的 stt-service（stt_server.py 随插件分发）。
+       渲染进程拿不到插件安装路径（blob 加载 + asar 页面），因此在 PowerShell 端按约定拼出。 */
     const dirExpr = useDir ? psQuote(useDir)
       : "(Join-Path $env:USERPROFILE '.snowapp\\plugins\\com.seagull.stt-launcher\\stt-service')";
     const envParts = [];
