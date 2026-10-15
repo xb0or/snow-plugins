@@ -1,0 +1,497 @@
+/* Side Ask 面板样式。
+   选择器统一 .sa- 前缀（esm 模式与主窗口同 DOM，防污染）。
+   颜色用中性 rgba / inherit + opacity，适配明暗主题。 */
+
+.sa-root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 14px;
+  min-width: 0;
+  min-height: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  color: inherit;
+}
+
+.sa-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sa-title {
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.sa-subtitle {
+  flex: 1;
+  min-width: 0;
+  opacity: 0.55;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ 通用控件 */
+
+.sa-btn {
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.1);
+  color: inherit;
+  padding: 3px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.sa-btn:hover:not(:disabled) {
+  background: rgba(128, 128, 128, 0.2);
+  border-color: rgba(128, 128, 128, 0.55);
+}
+
+.sa-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sa-btn-ghost {
+  background: transparent;
+}
+
+.sa-btn-primary {
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.sa-btn-primary:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.26);
+  border-color: rgba(59, 130, 246, 0.75);
+}
+
+.sa-btn-danger {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.55);
+}
+
+.sa-btn-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.24);
+  border-color: rgba(239, 68, 68, 0.8);
+}
+
+.sa-input,
+.sa-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.06);
+  color: inherit;
+  font: inherit;
+  padding: 5px 8px;
+  resize: vertical;
+  min-width: 0;
+}
+
+.sa-input:focus,
+.sa-textarea:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.7);
+}
+
+.sa-input-num {
+  width: 90px;
+}
+
+/* ---------------------------------------------------------------- 提示条 */
+
+.sa-banner {
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 7px;
+  padding: 7px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sa-banner-danger {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.sa-banner-title {
+  font-weight: 600;
+}
+
+.sa-banner-body {
+  opacity: 0.8;
+  line-height: 1.5;
+}
+
+.sa-banner-dismiss {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+/* -------------------------------------------------------------- 上下文栏 */
+
+.sa-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 5px 0;
+  border-top: 1px solid rgba(128, 128, 128, 0.18);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+  min-width: 0;
+}
+
+.sa-context-text {
+  flex: 1;
+  min-width: 0;
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sa-context-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+/* ---------------------------------------------------------------- 消息区 */
+
+.sa-messages {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px;
+}
+
+.sa-empty {
+  opacity: 0.55;
+  padding: 10px 0;
+  line-height: 1.6;
+}
+
+.sa-msg {
+  border-radius: 7px;
+  padding: 7px 9px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sa-msg-user {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.sa-msg-assistant {
+  background: rgba(128, 128, 128, 0.1);
+  border: 1px solid rgba(128, 128, 128, 0.22);
+}
+
+.sa-msg-live {
+  border-style: dashed;
+}
+
+.sa-msg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.sa-msg-role {
+  font-weight: 600;
+}
+
+.sa-msg-meta {
+  opacity: 0.85;
+}
+
+.sa-msg-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------- Markdown 渲染元素 */
+
+/* 块级元素自带间距，取消父级 pre-wrap 造成的额外空行 */
+.sa-msg-body .sa-p {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+}
+
+.sa-msg-body .sa-p:last-child {
+  margin-bottom: 0;
+}
+
+.sa-msg-body .sa-h {
+  margin: 10px 0 6px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.sa-msg-body .sa-h:first-child {
+  margin-top: 0;
+}
+
+.sa-h1 {
+  font-size: 15px;
+}
+
+.sa-h2 {
+  font-size: 14px;
+}
+
+.sa-h3 {
+  font-size: 13px;
+}
+
+.sa-h4,
+.sa-h5,
+.sa-h6 {
+  font-size: 12.5px;
+  opacity: 0.9;
+}
+
+.sa-msg-body .sa-list {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.sa-msg-body .sa-list:last-child {
+  margin-bottom: 0;
+}
+
+.sa-msg-body .sa-list li {
+  margin: 2px 0;
+  white-space: pre-wrap;
+}
+
+.sa-msg-body .sa-quote {
+  margin: 6px 0;
+  padding: 2px 0 2px 9px;
+  border-left: 3px solid rgba(128, 128, 128, 0.4);
+  opacity: 0.85;
+  white-space: pre-wrap;
+}
+
+.sa-msg-body .sa-hr {
+  border: none;
+  border-top: 1px solid rgba(128, 128, 128, 0.3);
+  margin: 10px 0;
+}
+
+.sa-msg-body .sa-pre {
+  position: relative;
+  margin: 6px 0;
+  padding: 8px 9px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.14);
+  border: 1px solid rgba(128, 128, 128, 0.22);
+  overflow-x: auto;
+  white-space: pre;
+  min-width: 0;
+}
+
+.sa-msg-body .sa-pre:last-child {
+  margin-bottom: 0;
+}
+
+.sa-code-block {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.sa-pre-lang {
+  position: absolute;
+  top: 4px;
+  right: 7px;
+  font-size: 10px;
+  opacity: 0.5;
+  text-transform: lowercase;
+}
+
+.sa-code-inline {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.16);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sa-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  opacity: 0.9;
+}
+
+.sa-msg-body strong {
+  font-weight: 600;
+}
+
+.sa-thinking {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.sa-thinking-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid rgba(128, 128, 128, 0.3);
+}
+
+/* ------------------------------------------------------------ 状态与输入 */
+
+.sa-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 16px;
+  font-size: 11px;
+  opacity: 0.75;
+  min-width: 0;
+}
+
+.sa-status-error {
+  color: #ef4444;
+  opacity: 1;
+}
+
+/* 手动进度报告按钮：贴右，避免与状态文字挤在一起 */
+.sa-btn-report {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 1px 8px;
+}
+
+.sa-notice {
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sa-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sa-question {
+  resize: vertical;
+}
+
+.sa-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.sa-composer-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sa-footer {
+  font-size: 11px;
+  opacity: 0.55;
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------------- 设置区 */
+
+.sa-settings {
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 7px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+
+.sa-settings-title {
+  font-weight: 600;
+}
+
+.sa-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sa-field-row {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sa-field-label {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.sa-field-hint {
+  font-size: 11px;
+  opacity: 0.55;
+  line-height: 1.45;
+}
+
+.sa-check {
+  display: inline-flex;
+  align-items: center;
+}
+
+.sa-settings-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.sa-loading {
+  opacity: 0.6;
+}

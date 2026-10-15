@@ -9,6 +9,7 @@
 - [snow-skill-store](./snow-skill-store) — 技能商店：聚合公开技能索引（官方技能 / 本地技能 / 社区源 / skills.sh），搜索与分类过滤，全局或项目级一键安装或让 AI 代装
 - [snow-stt-launcher](./snow-stt-launcher) — 本地语音服务（面板插件）：启动 / 停止 / 重启本机 whisper.cpp 转写服务，自动择优 CUDA / Vulkan / CPU 推理后端，并管理识别模型
 - [snow-anon-chat](./snow-anon-chat) — 匿名聊天：接入 hack.chat（界面显示 ?SNOW），昵称持久化不随重连变化；支持 Markdown 消息格式（粗体/斜体/代码块/链接/图片/表格/公式源码等，面板内置写法帮助）；因宿主 CSP 限制经本机零依赖桥进程中转，支持代理自动探测，需 Node.js 14+
+- [snow-side-ask](./snow-side-ask) — 旁路问答：在面板内用自己的输入框提问，回答只流式显示在面板里，不回填输入框、不发送、不写入会话历史；自动携带焦点会话作为上下文并在切换会话时刷新；「进度报告」可按 `/btw` 语义对主会话当前任务生成进度总结（主会话运行中还能按间隔自动生成）；走宿主内部流式通道且请求不传 conversationId，宿主升级后可能失效
 
 ## 客户端脚本
 
