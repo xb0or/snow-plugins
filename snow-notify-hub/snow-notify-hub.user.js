@@ -2,7 +2,7 @@
 // @name         回合结束通知中心
 // @name:en      Turn-end Notifier
 // @namespace    kedou
-// @version      1.4.4
+// @version      1.4.5
 // @description  回合结束通知中心：多渠道推送（Server酱 / PushPlus / Bark / 钉钉 / 企业微信 / Telegram / 飞书）+ 提示音 + 应用内提示；支持后台会话（非当前打开会话）完成提醒
 // @author       kedou
 // @license      MIT
@@ -1250,7 +1250,10 @@
     popDocListeners.push({ type: "keydown", fn: onKey });
   }
 
-  /* 注入菜单按钮：优先放在顶栏「待办列表」按钮旁（小铃铛图标）；找不到时回退 chat.input.actions 插槽 */
+  /* 注入菜单按钮：优先放在顶栏「待办列表」按钮旁（小铃铛图标）。
+     待办按钮在会话没有待办（sessionId 为空）时由宿主直接不渲染，此时锚点改用标题组
+     —— 待办按钮原本就紧跟在标题组之后，两者在顶栏的位置一致。
+     设置页、团队页、功能页没有聊天头部，锚点为 null，铃铛收起，回到聊天视图后重挂。 */
   function findTodoButton() {
     var cand = document.querySelector(".top-bar-todo-btn");
     if (cand) return cand;
@@ -1261,22 +1264,38 @@
     return null;
   }
 
+  function findTopBarAnchor() {
+    var todoBtn = findTodoButton();
+    if (todoBtn) return todoBtn;
+
+    var titleGroup = document.querySelector(".top-bar-main .header-title-group");
+    if (!titleGroup) return null;
+    /* 非聊天视图：设置页 / 团队页 / 功能页 */
+    if (titleGroup.classList.contains("is-settings-page")) return null;
+    if (titleGroup.classList.contains("is-team-page")) return null;
+    if (document.querySelector(".top-bar-main .feature-page-close-btn")) return null;
+    return titleGroup;
+  }
+
   function injectMenuButton() {
-    var anchorBtn = findTodoButton();
-    var fallback = null;
-    if (!anchorBtn) {
-      try { fallback = snow.slot && snow.slot("chat.input.actions"); } catch (e) { /* ignore */ }
-      if (!fallback) {
-        try { fallback = document.querySelector('[data-snow-slot="chat.input.actions"]'); } catch (e) { return; }
+    var anchor = findTopBarAnchor();
+    var existing = document.querySelector("." + PREFIX + "-menubtn");
+
+    /* 设置页 / 团队页 / 功能页：收起铃铛并关闭浮层；回到聊天视图由观察器重新挂回 */
+    if (!anchor) {
+      if (existing) {
+        closePopover();
+        if (existing.parentNode) existing.parentNode.removeChild(existing);
       }
-      if (!fallback) return;
+      menuBtn = null;
+      return;
     }
 
-    /* 全局只保留一个按钮：已存在则复用；若顶栏锚点此时可用而按钮不在锚点旁，搬迁过去（防回退残留） */
-    var existing = document.querySelector("." + PREFIX + "-menubtn");
+    /* 全局只保留一个按钮：已存在则复用；锚点变化（待办按钮出现或消失）时搬迁 */
     if (existing) {
-      if (anchorBtn && existing.previousElementSibling !== anchorBtn && existing.nextElementSibling !== anchorBtn) {
-        anchorBtn.insertAdjacentElement("afterend", existing);
+      if (existing.previousElementSibling !== anchor && existing.nextElementSibling !== anchor) {
+        if (popoverEl) closePopover();
+        anchor.insertAdjacentElement("afterend", existing);
       }
       menuBtn = existing;
       return;
@@ -1294,13 +1313,15 @@
       if (popoverEl) closePopover();
       else openPopover(btn);
     });
-    if (anchorBtn) anchorBtn.insertAdjacentElement("afterend", btn); /* 紧贴待办列表按钮右侧 */
-    else fallback.appendChild(btn);
+    anchor.insertAdjacentElement("afterend", btn);
     menuBtn = btn;
-    diag("menubtn", { injected: true, host: anchorBtn ? "topbar-todo" : "input-slot" });
+    diag("menubtn", {
+      injected: true,
+      host: anchor.classList.contains("header-title-group") ? "topbar-title" : "topbar-todo"
+    });
   }
 
-  /* 输入区随视图切换可能重建插槽节点：MutationObserver + 250ms 防抖重挂 */
+  /* 顶栏随视图切换重建（待办按钮出现/消失）：MutationObserver + 250ms 防抖重挂 */
   function watchMenuSlot() {
     if (slotObserver) return;
     slotObserver = new MutationObserver(function () {
