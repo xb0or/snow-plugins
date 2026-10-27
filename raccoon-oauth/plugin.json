@@ -1,0 +1,18 @@
+{
+  "id": "raccoon-oauth",
+  "name": {
+    "default": "Raccoon Sign-in",
+    "zh-CN": "商汤小浣熊登录"
+  },
+  "description": {
+    "default": "Add a SenseTime Raccoon account through its desktop authorization page or a pasted callback link.",
+    "zh-CN": "通过桌面授权页或粘贴回调链接添加商汤小浣熊账号。"
+  },
+  "version": "0.1.0",
+  "author": "kedou",
+  "license": "MIT",
+  "icon": "lucide:KeyRound",
+  "renderMode": "esm",
+  "entry": "panel/login.js",
+  "oauth": { "entry": "oauth.mjs" }
+}

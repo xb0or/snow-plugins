@@ -11,6 +11,14 @@
 - [snow-anon-chat](./snow-anon-chat) — 匿名聊天：接入 hack.chat（界面显示 ?SNOW），昵称持久化不随重连变化；支持 Markdown 消息格式（粗体/斜体/代码块/链接/图片/表格/公式源码等，面板内置写法帮助）；因宿主 CSP 限制经本机零依赖桥进程中转，支持代理自动探测，需 Node.js 14+
 - [snow-side-ask](./snow-side-ask) — 旁路问答：在面板内用自己的输入框提问，回答只流式显示在面板里，不回填输入框、不发送、不写入会话历史；自动携带焦点会话作为上下文并在切换会话时刷新；「进度报告」可按 `/btw` 语义对主会话当前任务生成进度总结（主会话运行中还能按间隔自动生成）；走宿主内部流式通道且请求不传 conversationId，宿主升级后可能失效
 
+## OAuth 插件
+
+以下三个是「设置 → API 设置 → OAuth 登录」里的登录来源，需要在 Snow App 0.5.6+ 使用（自定义登录面板与响应侧钩子由 0.5.6 引入）：
+
+- [loomy-oauth](./loomy-oauth) — 讯飞 Loomy 登录：手机号 + 短信验证码直接在登录弹窗的面板里完成（适配层起只在 127.0.0.1 监听的本地服务负责发码与验码），登录后使用其 OpenAI 兼容模型网关；会话 14 天、无续期
+- [raccoon-oauth](./raccoon-oauth) — 商汤小浣熊登录：单一入口两种方式——点「打开授权页」在浏览器授权后由 127.0.0.1 本地回调自动完成，或把浏览器最后的 `office-raccoon://auth/callback?code=…` 链接（也支持 JWT）粘回面板提交
+- [workbuddy-oauth](./workbuddy-oauth) — WorkBuddy 登录（国内版 / 国际版）：一个 provider 覆盖两个站点，面板里选站点；命中站点记进档案，之后续期 / 模型 / 额度 / 对话都按它走，出站 URL 由 `transformRequest` 改写 origin
+
 ## 客户端脚本
 
 - [snow-voice-io](./snow-voice-io) — 本地语音服务（客户端脚本）：语音输入（录音经本机 whisper 转写后回填输入框，静音自动停止、分段实时出字、可自定义快捷键）+ 回合结束时朗读 AI 回复

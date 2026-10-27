@@ -1,0 +1,18 @@
+{
+  "id": "loomy-oauth",
+  "name": {
+    "default": "Loomy Sign-in",
+    "zh-CN": "Loomy 登录"
+  },
+  "description": {
+    "default": "Add an iFlytek Loomy account through its phone-code sign-in and use Loomy's OpenAI-compatible model gateway.",
+    "zh-CN": "通过手机验证码登录讯飞 Loomy 账号，使用其 OpenAI 兼容模型网关。"
+  },
+  "version": "0.1.0",
+  "author": "kedou",
+  "license": "MIT",
+  "icon": "lucide:KeyRound",
+  "renderMode": "esm",
+  "entry": "panel/login.js",
+  "oauth": { "entry": "oauth.mjs" }
+}

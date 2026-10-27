@@ -1,0 +1,18 @@
+{
+  "id": "workbuddy-oauth",
+  "name": {
+    "default": "WorkBuddy Sign-in",
+    "zh-CN": "WorkBuddy 登录"
+  },
+  "description": {
+    "default": "Add a WorkBuddy account (China or Global) through its browser sign-in.",
+    "zh-CN": "通过浏览器登录添加 WorkBuddy 国内版或国际版账号。"
+  },
+  "version": "0.1.0",
+  "author": "kedou",
+  "license": "MIT",
+  "icon": "lucide:KeyRound",
+  "renderMode": "esm",
+  "entry": "panel/login.js",
+  "oauth": { "entry": "oauth.mjs" }
+}
