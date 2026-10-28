@@ -1,0 +1,16 @@
+{
+  "id": "trae-oauth",
+  "name": {
+    "default": "Trae Sign-in",
+    "zh-CN": "Trae 登录"
+  },
+  "description": {
+    "default": "Add a Trae CN or Trae Global account through the IDE's browser sign-in.",
+    "zh-CN": "通过 Trae IDE 的浏览器登录添加 Trae CN 或 Trae 国际版账号。"
+  },
+  "version": "0.1.0",
+  "author": "kedou",
+  "license": "MIT",
+  "icon": "lucide:KeyRound",
+  "oauth": { "entry": "oauth.mjs" }
+}

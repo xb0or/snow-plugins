@@ -1,0 +1,16 @@
+{
+  "id": "devin-oauth",
+  "name": {
+    "default": "Devin Sign-in",
+    "zh-CN": "Devin 登录"
+  },
+  "description": {
+    "default": "Add a Devin subscription through the Devin CLI's browser PKCE sign-in. Chat works through a custom transport (Snow 0.5.6+): the plugin hands each turn to Devin's Connect RPC / protobuf layer.",
+    "zh-CN": "通过 Devin CLI 的浏览器 PKCE 登录添加 Devin 订阅。对话经自定义传输接管（需 Snow 0.5.6+）：每轮请求交给 Devin 的 Connect RPC / protobuf 层。"
+  },
+  "version": "0.2.0",
+  "author": "kedou",
+  "license": "MIT",
+  "icon": "lucide:KeyRound",
+  "oauth": { "entry": "oauth.mjs" }
+}

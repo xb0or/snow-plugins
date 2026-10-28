@@ -1,0 +1,16 @@
+{
+  "id": "zcode-oauth",
+  "name": {
+    "default": "ZCode Sign-in",
+    "zh-CN": "ZCode 登录"
+  },
+  "description": {
+    "default": "Add a Z.ai or BigModel (Zhipu) GLM Coding Plan account through ZCode's sign-in.",
+    "zh-CN": "通过 ZCode 登录添加 Z.ai 或 BigModel（智谱）的 GLM Coding Plan 账号。"
+  },
+  "version": "0.1.0",
+  "author": "kedou",
+  "license": "MIT",
+  "icon": "lucide:KeyRound",
+  "oauth": { "entry": "oauth.mjs" }
+}
