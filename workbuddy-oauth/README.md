@@ -3,7 +3,7 @@
 本插件是上游 OpenCode provider 插件的 Snow App 适配层，上游实现原样保留在 `index.mjs`。上游一个文件导出两个站点插件（`index.mjs:2045-2046`），本插件把它们**合成一个 provider**：登录面板里选站点，命中的站点记进档案，之后都按它选上游实例。
 
 - 插件类型：OAuth 插件 + 自定义登录面板（`plugin.json` 声明 `oauth.entry` 与 `renderMode`/`entry`）
-- 版本：0.1.0
+- 版本：0.1.1
 - 作者：kedou
 - provider id：`workbuddy`（**一个** provider，覆盖国内版 copilot.tencent.com 与国际版 www.workbuddy.ai）
 
@@ -24,7 +24,7 @@
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
-| 浏览器登录 | 可用 | 上游 `authorize()` 取登录页并返回 `callback()`，`callback()` 内部按 state 轮询令牌与账号信息（`index.mjs:1043-1080`）。适配层用 `flow: "panel"`：两个站点的授权地址一起交给面板，用户在面板里选站点，`poll()` 两条各自轮询、谁先成功用谁 |
+| 浏览器登录 | 可用 | 上游 `authorize()` 取登录页并返回 `callback()`，`callback()` 内部按 state 轮询令牌与账号信息（`index.mjs:1043-1080`）。适配层用 `flow: "device"` + `panel`：`device` 让宿主托管轮询 `poll()`（两条授权线各自轮询、谁先成功用谁），`panel` 只负责在弹窗里列站点并打开授权页——两者正交，`panel` 不影响轮询 |
 | 令牌续期 | 可用 | 上游 `auth.refresh` 用 refresh token 换新令牌（`index.mjs:240-255`、`1791`），提前 5 分钟续期（`index.mjs:21` 的 `LEAD_MS`） |
 | 模型列表 | 可用 | 上游 `provider.models` 读账号实时的 `/v3/config`（`index.mjs:1771-1781`、`1668-1712`）；读不到时回退 `config()` 声明的内置表（`index.mjs:1751-1759`） |
 | 对话 | 可用（A 级） | OpenAI 兼容协议加 Bearer 鉴权，出站头与 body 由 `transformRequest` 按上游 `loader.fetch` 的出站部分补齐（`index.mjs:1804-1814`） |
@@ -44,7 +44,7 @@
 
 ## 转换要点
 
-1. **流程映射**：上游 `authorize()` 返回 `{ url, instructions, method: "auto", callback() }`，`callback()` 不接受参数、自己轮询（`index.mjs:1059-1079`）。按规范用 `flow: "panel"` 加 `poll()`：`authorize()` 为两个站点各发起一次（上游授权是「取 state + authUrl 再轮询 token」，不占本地端口，两站可并行），把两条授权地址一起写进 `session`，面板让用户选；`poll()` 两条各自轮询，谁先成功用谁，并把命中的站点写进 `data.site`。
+1. **流程映射**：上游 `authorize()` 返回 `{ url, instructions, method: "auto", callback() }`，`callback()` 不接受参数、自己轮询（`index.mjs:1059-1079`）。按规范用 `flow: "device"` 加 `poll()`：`authorize()` 为两个站点各发起一次（上游授权是「取 state + authUrl 再轮询 token」，不占本地端口，两站可并行），把两条授权地址一起写进 `session`，面板让用户选；`poll()` 两条各自轮询，谁先成功用谁，并把命中的站点写进 `data.site`。**`flow` 不能写 `panel`**：`panel` 只表示登录界面由插件接管，宿主不会调用 `poll()`；依赖 `poll()` 取令牌的登录必须是 `device`。两个字段正交，`device` 同样可以带 `panel`。
 2. **一个 provider 覆盖两个站点**：站点表来自上游导出的 `_internal.SITES`（`index.mjs:63-83`，不复制常量）。provider 的 `id` 固定 `workbuddy`，`api.baseUrl` 取默认站点（国内版）；账号实际所属站点记在 `data.site`，`refresh` / `models` / `quota` / `transformRequest` 都按它选上游实例，出站 URL 由 `transformRequest` 改写 origin。
 3. **令牌字段**：上游 `{access, refresh, expires}`（`expires` 为毫秒 epoch，`index.mjs:158-159`）映射为 Snow `{accessToken, refreshToken, expiresAt}`；`uid`、`domain`、`enterpriseId`、`refreshExpiresAt`、`tokenType` 放进 `data`，续期与企业头要靠它们还原（`index.mjs:292-295`）。
 4. **续期只回变化字段**：上游 `refreshed()` 只返回与旧值不同的字段（`index.mjs:252-254`），适配层用 `ctx.account` 兜底合并。
@@ -68,9 +68,9 @@ Copy-Item -Recurse "F:\desktop\code\snow-plugins\snow-oauth-plugins\workbuddy-oa
 1. 选择「WorkBuddy 登录」，点「开始登录」
 2. 登录弹窗内出现面板，里面有「WorkBuddy 国内版」与「WorkBuddy 国际版」两个按钮（各显示站点域名）
 3. 点对应站点（**面板不会自动打开浏览器**），在浏览器完成登录
-4. Snow 每 2 秒轮询，任一站点的授权先完成就建档激活；命中的站点记进档案，之后续期/模型/额度/对话都按它走
+4. Snow 按 2 秒间隔托管轮询（`flow: "device"` 的宿主行为），任一站点的授权先完成就建档激活；命中的站点记进档案，之后续期/模型/额度/对话都按它走
 
-旧版宿主（0.5.5 及以前）忽略 `panel`：退回 device 流程，宿主用默认站点（国内版）打开浏览器，操作方式相同。
+旧版宿主（0.5.5 及以前）没有 `panel`：`device` 流程照常轮询，只是弹窗里不显示自定义面板，宿主会用默认站点（国内版）直接打开浏览器；需要登录国际版时改用当前版本。
 
 ## 限制
 

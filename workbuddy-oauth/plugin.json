@@ -8,7 +8,7 @@
     "default": "Add a WorkBuddy account (China or Global) through its browser sign-in.",
     "zh-CN": "通过浏览器登录添加 WorkBuddy 国内版或国际版账号。"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "kedou",
   "license": "MIT",
   "icon": "lucide:KeyRound",

@@ -232,6 +232,14 @@ async function startSite(siteId) {
  *   - poll() 两条各自轮询，谁先成功用谁，并把命中的站点写进 data.site；
  *   - 之后 refresh / models / quota / transformRequest 都按 data.site 选站点，
  *     档案的 api.baseUrl 保持默认（国内），出站 URL 由 transformRequest 改写到实际站点。
+ *
+ * flow 用 "device" 而不是 "panel"：两者是正交的。
+ *   - flow 决定「登录怎么完成」：device = 宿主托管轮询，按 interval 反复调 poll()；
+ *     panel = 面板自己完成登录（submitCallback / submitTokens），宿主不调 poll()。
+ *   - panel 字段决定「有没有自定义登录界面」：device 流程同样可以声明 panel，
+ *     宿主在弹窗里渲染它，只是不再自动打开浏览器。
+ * 本插件的令牌来自上游 callback()（不等参数、自己轮询），必须由宿主调用 poll()，
+ * 所以 flow 必须是 device；panel 只负责选站点与打开授权页。
  */
 const provider = {
   id: "workbuddy",
@@ -244,7 +252,9 @@ const provider = {
   // 默认国内版 logo（站点官方 favicon）；国际账号建好档案后不影响使用
   icon: "icon-workbuddy-cn.svg",
   headerScheme: "WorkBuddy",
-  flow: "panel",
+  // device：宿主托管轮询 poll()；panel：弹窗里渲染自定义面板（选站点 + 打开浏览器）。
+  // 两者正交，device 流程同样支持 panel。
+  flow: "device",
   panel: {
     entry: "panel/login.js",
     title: { default: "WorkBuddy sign-in", "zh-CN": "WorkBuddy 登录" },
@@ -260,7 +270,8 @@ const provider = {
 
   /**
    * 两个站点各发起一次授权，面板让用户点其中一条。
-   * 上游 callback() 不接受参数、自己轮询，所以映射到 device 语义 + poll()。
+   * 上游 callback() 不接受参数、自己轮询，所以走 device 流程：宿主按 interval 调 poll()。
+   * 不返回 userCode：UI 因此只显示授权地址，不会误当成需要用户确认的设备码。
    */
   async authorize(ctx) {
     pending = null
@@ -309,7 +320,7 @@ const provider = {
     }
   },
 
-  /** 宿主按 interval 轮询；任一站点完成即返回，全部失败才报错。 */
+  /** flow=device：宿主按 interval 轮询；任一站点完成即返回，全部失败才报错。 */
   async poll() {
     if (!pending) throw new Error("WorkBuddy: no sign-in in progress; start again")
     // 第一次 poll 时把各站点的 callback 一起启动（不轮询的调用方不留悬挂任务）
