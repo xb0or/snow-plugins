@@ -13,14 +13,7 @@
 
 ## OAuth 插件
 
-以下六个是「设置 → API 设置 → OAuth 登录」里的登录来源，需要在 Snow App 0.5.6+ 使用（自定义登录面板与响应侧钩子由 0.5.6 引入）：
-
-- [devin-oauth](./devin-oauth) — Devin 登录：浏览器 PKCE 授权后由 127.0.0.1 本地回调自动完成；对话由插件的传输层接管（档 3 `fetch`），直接复用 Devin CLI 的 Connect RPC / protobuf 编解码，模型列表与额度面板也可用；会话令牌无续期
-- [loomy-oauth](./loomy-oauth) — 讯飞 Loomy 登录：手机号 + 短信验证码直接在登录弹窗的面板里完成（适配层起只在 127.0.0.1 监听的本地服务负责发码与验码），登录后使用其 OpenAI 兼容模型网关；会话 14 天、无续期
-- [raccoon-oauth](./raccoon-oauth) — 商汤小浣熊登录：单一入口两种方式——点「打开授权页」在浏览器授权后由 127.0.0.1 本地回调自动完成，或把浏览器最后的 `office-raccoon://auth/callback?code=…` 链接（也支持 JWT）粘回面板提交
-- [trae-oauth](./trae-oauth) — Trae 登录（国内版 / 国际版）：一个插件两个 provider，浏览器授权后本地回调自动完成；Trae 的私有 SSE 由 `transformRequest` + `onResponseChunk` / `transformResponse` 逐事件翻译成 OpenAI 分片，续期、模型与额度同样可用
-- [workbuddy-oauth](./workbuddy-oauth) — WorkBuddy 登录（国内版 / 国际版）：一个 provider 覆盖两个站点，面板里选站点；命中站点记进档案，之后续期 / 模型 / 额度 / 对话都按它走，出站 URL 由 `transformRequest` 改写 origin
-- [zcode-oauth](./zcode-oauth) — ZCode 登录（Z.ai / BigModel 智谱 GLM Coding Plan）：浏览器授权后本地回调自动完成；个体订阅与团队席位走标准 Anthropic Messages，Start Plan 的出站伪装与拒绝文案由 `transformRequest` / `transformResponse` 处理
+隐藏
 
 ## 客户端脚本
 
