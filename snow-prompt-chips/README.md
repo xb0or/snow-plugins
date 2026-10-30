@@ -7,7 +7,8 @@ Snow App 客户端脚本：把若干条自定义提示词渲染成输入框上�
 - **提示词条**：挂在聊天输入区插槽 `data-snow-slot="chat.input.actions"` 内，与其它插件按钮（如语音输入）同处一行并排在行首，位于输入框正上方。
 - **点击即发送**：点击任意芯片，内容作为一条消息发给当前会话（可在设置里改成"只填入输入框"）。
 - **设置弹窗**：点提示词条右侧的齿轮图标打开；支持增删提示词、上下移动排序、显示名称与内容分离编辑、删除二次确认、Esc 关闭。
-- **持久化**：数据写在脚本自己的 `GM_*` 命名空间（键 `spc.prompts` 与 `spc.config`），不依赖应用数据库。
+- **JSON 备份**：弹窗底部「备份与恢复」可把当前列表导出成 JSON（复制进系统剪贴板）或粘贴 JSON 导入到草稿；导入只改草稿，点「保存」才写入存储。
+- **持久化**：数据写在脚本自己的 `GM_*` 命名空间（键 `spc.prompts` 与 `spc.config`），不依赖应用数据库；重装/更新脚本只覆盖源码，不会清空这些值。
 
 ## 安装
 
@@ -40,7 +41,8 @@ config-set scope=userscripts key="new" value={sourcePath: "<绝对路径>/snow-p
 ## 实现要点
 
 - **挂载位置**：只用宿主稳定契约（锚点 `chat.input`、插槽 `chat.input.actions`），不依赖内部 class。插槽是 `display:flex; flex-wrap:wrap`，容器用 `order:-1` 排在按钮行首，`flex:1 1 auto` 与其它按钮同行；条内 `flex-wrap:wrap`，提示词多时自动换行（超过 56px 高度则在条内纵向滚动）。
-- **发送通道**：优先 `snow.client.sendMessage(text)`（宿主原生客户端动作，实测实现为派发 `client-action send-message`）；不可用时回退 `snow.write.run("chatInput.sendMessage", { text })`，该动作属于 `conversations` 隐私域，脚本已在元数据头声明 `@snow-privacy conversations`。
+- **发送通道**：`snow.write.run("conversations.sendMessage", { conversationId, text })` —— 宿主内部发送器直接投递到会话，不经过输入区，会话忙碌时由宿主排队；返回 `ok` 才提示「已发送」。输入区是新会话草稿（无 `conversationId`）时改用 `conversations.create({ text, autoReply: true })` 建会话并 `activate` 过去。该动作属于 `conversations` 隐私域，脚本已在元数据头声明 `@snow-privacy conversations`。
+  - 反例记录：`snow.client.sendMessage` / `chatInput.sendMessage` 在 Snow 0.5.8 上会走「写入输入区 → 同 tick 调 handleSend」路径，React state 未提交，实测**只把内容留在输入框、并未发出**（v1.0.0 的 bug），故不再作为发送主路径；失败时只用 `client.insertInputText` 兜底填入并如实提示「已填入输入框」。
 - **重挂兜底**：`MutationObserver` 监听 DOM，节点被 React 重建后自动重挂；卸载时清理节点、样式、监听与弹窗。
 - **主题跟随**：全部颜色取宿主 CSS 变量（`--bg-primary`、`--bg-secondary`、`--text-primary`、`--border-color`、`--accent-blue` 等），自动适配明暗主题。
 - 图标为内嵌 Lucide 路径（客户端脚本环境没有全局 lucide 对象），无外部依赖、无网络访问。

@@ -2,8 +2,8 @@
 // @name         便捷提示词
 // @name:en      Prompt Chips
 // @namespace    kedou
-// @version      1.0.0
-// @description  在聊天输入框上方显示自定义的便捷提示词，点击即直接发送（可切换为仅填入输入框）；支持增删改与排序
+// @version      1.0.2
+// @description  在聊天输入框上方显示自定义的便捷提示词，点击即直接发送（可切换为仅填入输入框）；支持增删改与排序、JSON 备份导出导入
 // @author       kedou
 // @license      MIT
 // @icon         lucide:Zap
@@ -13,6 +13,7 @@
 // @run-at       document-idle
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_setClipboard
 // ==/UserScript==
 
 /*
@@ -27,12 +28,20 @@
  *         ├ div.stream-metrics-bar            （流式运行指标，可能不存在）
  *         ├ div.snow-client-slot[data-snow-slot="chat.input.actions"]  ← 官方可写插槽
  *         └ div.input-box                     （输入框本体）
- *   插槽为 display:flex / flex-wrap:wrap，故条容器用 order:-1 + flex:1 1 100% 独占插槽第一行，
- *   即位于输入框正上方；不依赖任何内部 class 层级，插槽内容由宿主在脚本卸载时清理。
+ *   插槽为 display:flex / flex-wrap:wrap，故条容器用 order:-1 + flex:1 1 auto 排在按钮行首
+ *   （与其它插件按钮同行），即位于输入框正上方；不依赖任何内部 class 层级，
+ *   插槽内容由宿主在脚本卸载时清理。
  *
- * 发送通道（实测 snow.client 源码）：
- *   snow.client.sendMessage(text)  派发 client-action "send-message"，宿主在输入区处理，无需隐私声明；
- *   缺失时回退 snow.write.run("chatInput.sendMessage", { text })（需 @snow-privacy conversations）。
+ * 发送通道（宿主源码 + 实测）：
+ *   snow.write.run("conversations.sendMessage", { conversationId, text })
+ *     由宿主内部发送器直接投递到指定会话，不经过输入区，返回 { ok, data: { status } }
+ *     （会话忙碌时 status 非 "started"，即已排队）。
+ *   输入区若是新会话草稿（snow.context.conversationId 为空）：
+ *     conversations.create({ directoryId, title, text, autoReply: true }) 建会话，再 activate 切过去。
+ *   注意：snow.client.sendMessage / chatInput.sendMessage 在 Snow 0.5.8 上走的是
+ *     「restoreContent 写入输入区 → 同 tick 调 handleSend("queue")」路径，React state 尚未提交，
+ *     实测只把文本留在输入框、并未真正发出，故不再作为发送主路径；
+ *     仅在上述通道失败时用 client.insertInputText 兜底填入，toast 如实提示「已填入输入框」。
  *
  * 数据：GM_getValue/GM_setValue 持久化，键 spc.prompts（提示词数组）与 spc.config（开关）。
  */
@@ -142,6 +151,9 @@
     "arrow-up": '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
     "arrow-down": '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
+    "refresh-cw": '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+    clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
     "circle-alert": '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>'
   };
 
@@ -240,6 +252,8 @@
     "background:var(--bg-primary,#fff);border:1px solid var(--border-color,rgba(127,127,127,.3));",
     "border-radius:var(--radius-sm,6px);color-scheme:light dark;}",
     "." + PREFIX + "-area{margin-top:6px;min-height:56px;resize:vertical;}",
+    "." + PREFIX + "-backup{min-height:104px;font-family:var(--font-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);font-size:11px;}",
+    "." + PREFIX + "-btnrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;}",
     "." + PREFIX + "-input:focus,." + PREFIX + "-area:focus{outline:none;border-color:var(--accent-blue,#3b82f6);}",
     "." + PREFIX + "-empty{font-size:12px;color:var(--text-tertiary,inherit);padding:10px 0;overflow-wrap:anywhere;}",
     "." + PREFIX + "-tip{font-size:11px;line-height:1.7;color:var(--text-tertiary,inherit);margin-top:6px;overflow-wrap:anywhere;}",
@@ -288,47 +302,96 @@
 
   /* ============================ 发送 ============================ */
 
-  /* 返回 { ok, via, error }；ok=false 时去重提示 */
-  function dispatchPrompt(item) {
-    if (!cfg.direct) {
-      if (!(snow.client && typeof snow.client.insertInputText === "function")) {
-        return { ok: false, error: "当前宿主不支持填入输入框" };
-      }
+  /* 把内容填进输入框（两种模式共用；不依赖发送通道） */
+  function fillInput(item) {
+    if (snow.client && typeof snow.client.insertInputText === "function") {
       try {
         snow.client.insertInputText(item.text);
-        return { ok: true, via: "fill" };
+        return { ok: true };
       } catch (e) {
         return { ok: false, error: "填入输入框失败：" + e };
       }
     }
+    return { ok: false, error: "当前宿主不支持填入输入框" };
+  }
 
-    /* 优先客户端动作：宿主原生发送通道，无需额外隐私声明 */
-    if (snow.client && typeof snow.client.sendMessage === "function") {
+  function errText(res) {
+    if (!res) return "未知原因";
+    if (typeof res.error === "string" && res.error) return res.error;
+    if (res.denied) {
+      if (typeof res.denied === "string") return res.denied;
+      try { return JSON.stringify(res.denied); } catch (e) { return "被宿主拒绝"; }
+    }
+    return "未知原因";
+  }
+
+  /* 写系统剪贴板：优先宿主写动作（免隐私声明），回退 GM_setClipboard */
+  function writeClipboard(text) {
+    if (snow.write && typeof snow.write.run === "function") {
+      snow.write.run("system.writeClipboardText", { text: text }).then(function (res) {
+        if (res && res.ok) toast("已复制到剪贴板", "ok");
+        else toast("复制失败：" + errText(res), "err");
+      }).catch(function (e) {
+        toast("复制失败：" + e, "err");
+      });
+      return;
+    }
+    if (typeof GM_setClipboard === "function") {
       try {
-        snow.client.sendMessage(item.text);
-        return { ok: true, via: "send" };
+        GM_setClipboard(text);
+        toast("已复制到剪贴板", "ok");
       } catch (e) {
-        /* 落到写动作回退 */
-        log("client.sendMessage 失败，尝试写动作回退：" + e);
+        toast("复制失败：" + e, "err");
       }
+      return;
     }
+    toast("当前环境不支持写剪贴板，请在上方文本框里手动全选复制", "err");
+  }
 
-    /* 回退：chatInput.sendMessage 写动作（需 @snow-privacy conversations，返回 ok/error） */
-    try {
-      if (snow.write && snow.write.chatInput && typeof snow.write.chatInput.sendMessage === "function") {
-        snow.write.chatInput.sendMessage({ text: item.text }).then(function (res) {
-          if (res && res.ok) toast("已发送：" + displayName(item), "ok");
-          else toast("发送失败：" + ((res && (res.error || res.denied)) || "未知原因"), "err");
-        }).catch(function (err) {
-          toast("发送失败：" + err, "err");
-        });
-        return { ok: true, via: "write", pending: true };
+  /* 直接投递到指定会话：走宿主内部发送通道，不经过输入区；会话忙碌时由宿主排队 */
+  function sendToConversation(conversationId, item, cb) {
+    snow.write.run("conversations.sendMessage", { conversationId: conversationId, text: item.text })
+      .then(function (res) {
+        if (res && res.ok) {
+          var status = res.data && res.data.status;
+          cb(true, "已发送：" + displayName(item) + (status && status !== "started" ? "（已排队）" : ""));
+          return;
+        }
+        var fb = fillInput(item);
+        cb(false, "发送失败（" + errText(res) + "）" + (fb.ok ? "，已改为填入输入框" : ""));
+      })
+      .catch(function (err) {
+        var fb = fillInput(item);
+        cb(false, "发送异常：" + err + (fb.ok ? "，已改为填入输入框" : ""));
+      });
+  }
+
+  /* 输入区是新会话草稿（无 conversationId）：新建会话并投递，随后切过去 */
+  function sendAsNewConversation(item, cb) {
+    var ctx = snow.context || {};
+    if (!ctx.projectId) {
+      cb(false, "找不到当前项目，无法新建会话发送");
+      return;
+    }
+    snow.write.run("conversations.create", {
+      directoryId: ctx.projectId,
+      title: displayName(item).slice(0, 40),
+      text: item.text,
+      autoReply: true
+    }).then(function (res) {
+      if (!res || !res.ok || !res.data || !res.data.conversationId) {
+        cb(false, "新建会话失败：" + errText(res));
+        return;
       }
-    } catch (e) {
-      return { ok: false, error: "写动作回退失败：" + e };
-    }
-
-    return { ok: false, error: "未找到可用的发送接口" };
+      var cid = res.data.conversationId;
+      snow.write.run("conversations.activate", { conversationId: cid }).then(function () {
+        cb(true, "已在新会话发送：" + displayName(item));
+      }).catch(function () {
+        cb(true, "已在新会话发送：" + displayName(item));
+      });
+    }).catch(function (err) {
+      cb(false, "新建会话失败：" + err);
+    });
   }
 
   function displayName(item) {
@@ -337,15 +400,28 @@
     return t.length > 18 ? t.slice(0, 18) + "…" : t;
   }
 
+  function finish(ok, message) {
+    toast(message, ok ? "ok" : "err");
+  }
+
   function onChipClick(item) {
-    var res = dispatchPrompt(item);
-    if (!res.ok) {
-      toast(res.error || "发送失败", "err");
+    if (!cfg.direct) {
+      var r = fillInput(item);
+      if (r.ok) toast("已填入输入框：" + displayName(item), "ok");
+      else toast(r.error || "填入输入框失败", "err");
       return;
     }
-    if (res.via === "fill") toast("已填入输入框：" + displayName(item), "ok");
-    else if (res.via === "send") toast("已发送：" + displayName(item), "ok");
-    /* via === "write" 时由 Promise 回调提示 */
+
+    if (!(snow.write && typeof snow.write.run === "function")) {
+      var r2 = fillInput(item);
+      if (r2.ok) toast("当前宿主没有直接发送通道，已填入输入框，请手动发送", "err");
+      else toast(r2.error || "发送失败", "err");
+      return;
+    }
+
+    var ctx = snow.context || {};
+    if (ctx.conversationId) sendToConversation(ctx.conversationId, item, finish);
+    else sendAsNewConversation(item, finish);
   }
 
   /* ============================ 提示词条 ============================ */
@@ -540,6 +616,79 @@
     body.appendChild(addBtn);
 
     renderList();
+
+    /* 备份与恢复：导入只替换草稿，点「保存」才写入脚本存储 */
+    var backupTitle = el("div", PREFIX + "-sec");
+    backupTitle.appendChild(el("span", null, "备份与恢复"));
+    body.appendChild(backupTitle);
+
+    var backupArea = el("textarea", PREFIX + "-area " + PREFIX + "-backup");
+    backupArea.value = JSON.stringify(draft.items, null, 2);
+    backupArea.spellcheck = false;
+    backupArea.setAttribute("aria-label", "提示词 JSON 备份内容");
+    body.appendChild(backupArea);
+
+    var backupRow = el("div", PREFIX + "-btnrow");
+
+    var genBtn = el("button", PREFIX + "-btn");
+    genBtn.type = "button";
+    genBtn.appendChild(svgIcon("refresh-cw", 14));
+    genBtn.appendChild(el("span", null, "生成 JSON"));
+    genBtn.addEventListener("click", function () {
+      backupArea.value = JSON.stringify(draft.items, null, 2);
+      toast("已按当前列表生成 JSON");
+    });
+    backupRow.appendChild(genBtn);
+
+    var copyBtn = el("button", PREFIX + "-btn");
+    copyBtn.type = "button";
+    copyBtn.appendChild(svgIcon("clipboard", 14));
+    copyBtn.appendChild(el("span", null, "复制"));
+    copyBtn.addEventListener("click", function () {
+      if (!backupArea.value) {
+        toast("没有可复制的内容，先点「生成 JSON」", "err");
+        return;
+      }
+      writeClipboard(backupArea.value);
+    });
+    backupRow.appendChild(copyBtn);
+
+    var importBtn = el("button", PREFIX + "-btn");
+    importBtn.type = "button";
+    importBtn.appendChild(svgIcon("upload", 14));
+    importBtn.appendChild(el("span", null, "导入到草稿"));
+    importBtn.addEventListener("click", function () {
+      var raw = backupArea.value.trim();
+      if (!raw) {
+        toast("请先粘贴备份 JSON", "err");
+        return;
+      }
+      var parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        toast("JSON 解析失败：" + e, "err");
+        return;
+      }
+      if (!Array.isArray(parsed)) {
+        toast("备份格式不对：顶层应为数组", "err");
+        return;
+      }
+      var cleaned = normalizePrompts(parsed);
+      if (!cleaned.length) {
+        toast("没有解析到有效提示词（每条需要非空 text）", "err");
+        return;
+      }
+      draft.items = cleaned;
+      renderList();
+      backupArea.value = JSON.stringify(draft.items, null, 2);
+      toast("已导入 " + cleaned.length + " 条到草稿，点「保存」生效", "ok");
+    });
+    backupRow.appendChild(importBtn);
+    body.appendChild(backupRow);
+
+    body.appendChild(el("div", PREFIX + "-tip",
+      "「生成 JSON」按当前列表输出；「复制」写入系统剪贴板；「导入到草稿」用上方文本替换列表，点「保存」才会写入脚本存储（提示词只存在本机脚本存储里，换机或重装前先复制一份）。"));
 
     var foot = el("div", PREFIX + "-foot");
     var saveBtn = el("button", PREFIX + "-btn " + PREFIX + "-primary");
