@@ -16,16 +16,24 @@
 
 const PRICES_KEY = "prices";
 const FILTER_KEY = "filter";
+/* 价格联动桥（单向发布，看板是唯一事实源）：
+   客户端脚本 snow-session-stats-pills 需要按同一套单价算会话成本，但读不到插件私有 storage
+   （app_plugin_values），故把归一化后的价格表同时发布到 DOM 与 localStorage：
+   隔离世界的用户脚本共享 DOM、且能读到页面 origin 的 localStorage，两条通道任取其一。 */
+const BRIDGE_KEY = "snow.usageCost.prices.v1";
+const BRIDGE_ATTR = "data-snow-usage-cost-prices";
 /* 「全部日期」预设的查询边界：显式给出极早/极晚时间戳，避免依赖宿主对缺失 since/until 的默认处理 */
 const ALL_TIME_SINCE = "1970-01-01 00:00:00";
 const ALL_TIME_UNTIL = "2099-12-31 23:59:59";
 const POLL_MS = 5000;
 const PROJECTS_POLL_MS = 60000;
+/* token 类别 → 价格字段：token 维度叫 nonCachedInput，价格表里的字段叫 input（两者必须分开，
+   否则「非缓存输入」这一类会取到 undefined 单价 → 输入价永远不参与计费） */
 const CATS = [
-  { key: "nonCachedInput", labelKey: "cat.nonCachedInput", label: "非缓存输入" },
-  { key: "cacheRead", labelKey: "cat.cacheRead", label: "缓存读" },
-  { key: "cacheWrite", labelKey: "cat.cacheWrite", label: "缓存写" },
-  { key: "output", labelKey: "cat.output", label: "输出" },
+  { key: "nonCachedInput", priceKey: "input", labelKey: "cat.nonCachedInput", label: "非缓存输入" },
+  { key: "cacheRead", priceKey: "cacheRead", labelKey: "cat.cacheRead", label: "缓存读" },
+  { key: "cacheWrite", priceKey: "cacheWrite", labelKey: "cat.cacheWrite", label: "缓存写" },
+  { key: "output", priceKey: "output", labelKey: "cat.output", label: "输出" },
 ];
 const ZERO_P = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
 
@@ -133,7 +141,7 @@ function splitTokens(rec) {
 function costOf(rec, price) {
   const t = splitTokens(rec);
   let c = 0;
-  for (const cat of CATS) c += t[cat.key] * (clamp0(price[cat.key]) || 0);
+  for (const cat of CATS) c += t[cat.key] * (clamp0(price[cat.priceKey]) || 0);
   return c / 1e6;
 }
 
@@ -243,6 +251,35 @@ function priceFor(prices, model) {
   const d = prices.defaultPrice || ZERO_P;
   const hasAny = d.input || d.cacheRead || d.cacheWrite || d.output;
   return { price: hasAny ? d : BUILTIN_DEFAULT_PRICE, source: "default" };
+}
+
+/* 发布价格快照给客户端脚本（读取方：snow-session-stats-pills）。
+   幂等：节点按属性复用，内容没变不重写；localStorage 与 DOM 都失败时静默降级，
+   不影响看板自身的成本计算。 */
+function publishPriceBridge(prices) {
+  let payload;
+  try {
+    payload = JSON.stringify(prices);
+  } catch (e) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(BRIDGE_KEY, payload);
+  } catch (e) {
+    /* 受限 origin / 隐私模式下 localStorage 不可用，属预期 */
+  }
+  try {
+    let node = document.querySelector('script[type="application/json"][' + BRIDGE_ATTR + "]");
+    if (!node) {
+      node = document.createElement("script");
+      node.type = "application/json";
+      node.setAttribute(BRIDGE_ATTR, "");
+      document.head.appendChild(node);
+    }
+    if (node.textContent !== payload) node.textContent = payload;
+  } catch (e) {
+    /* DOM 不可用时只保留 localStorage 通道 */
+  }
 }
 
 /** CSV 字段转义：含逗号/引号/换行时加引号 */
@@ -694,6 +731,7 @@ export default function UsageCostPanel({ api }) {
       const p = normalizePrices(raw, UI_LOCALE);
       setPrices(p);
       setPriceEdit(toEdit(p));
+      publishPriceBridge(p);
     })();
     return () => { done = true; };
   }, [api]);
@@ -931,7 +969,7 @@ export default function UsageCostPanel({ api }) {
     for (const r of modelRows) {
       for (const c of CATS) {
         acc[c.key] += r.tokens[c.key];
-        cost[c.key] += r.tokens[c.key] * (clamp0(r.price[c.key]) || 0);
+        cost[c.key] += r.tokens[c.key] * (clamp0(r.price[c.priceKey]) || 0);
       }
     }
     const b = {};
@@ -1014,8 +1052,10 @@ export default function UsageCostPanel({ api }) {
       try {
         await api.storage.setJson(PRICES_KEY, out);
         if (!aliveRef.current) return { ok: false };
-        setPrices(normalizePrices(out, UI_LOCALE));
-        setPriceEdit(toEdit(normalizePrices(out, UI_LOCALE)));
+        const normalized = normalizePrices(out, UI_LOCALE);
+        setPrices(normalized);
+        setPriceEdit(toEdit(normalized));
+        publishPriceBridge(normalized);
         return { ok: true };
       } catch (e) {
         return { ok: false, error: e && e.message ? e.message : String(e) };
@@ -1282,8 +1322,8 @@ export default function UsageCostPanel({ api }) {
         min: "0",
         step: "any",
         "data-ucx-tip": T(c.labelKey, c.label) + T("price.unitSuffix", "单价（每 100 万 token）"),
-        value: p[c.key],
-        onChange: (e) => onPriceCell(scope, model, c.key, e.target.value),
+        value: p[c.priceKey],
+        onChange: (e) => onPriceCell(scope, model, c.priceKey, e.target.value),
       })
     );
 
