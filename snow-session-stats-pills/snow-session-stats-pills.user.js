@@ -2,7 +2,7 @@
 // @name         会话统计条
 // @name:en      Session Stats Pills
 // @namespace    kedou
-// @version      1.0.2
+// @version      1.0.3
 // @description  在聊天输入框最下方显示当前会话的轮次与步数、首 token 与输出速度、缓存命中率、输入输出 token，以及按「成本核算看板」单价联动计算的会话成本
 // @author       kedou
 // @license      MIT
@@ -34,6 +34,8 @@
  * 数据来源（全部走宿主元数据域，不做 DOM 抓取）：
  *   runtime   （无隐私）  focus 会话实时流式状态：streamTokenCount / streamElapsedMs / streamTtftMs /
  *                         lastRunDurationMs，用于速度块与「是否正在流式」判断；
+ *                         速度块用 3 秒滑动窗口的瞬时 TPS（streamTokenCount 采样增量 ÷ 实际跨度），
+ *                         不再用「累计 token ÷ 累计时长」的平均口径；
  *                         tokenUsage 用于「缓存命中」药丸——与输入框右侧用量环同源同公式
  *                         （cacheRead = min(cacheReadInputTokens, input)，命中率 = cacheRead / input）。
  *                         注意：环是「当前上下文」口径，usage.records 是「全会话账单」口径，两者数值天然不同。
@@ -68,6 +70,12 @@
 
   var RUNTIME_MS = 1000; /* 实时流式状态轮询 */
   var ROUNDS_MS = 30000; /* 轮数轮询（低频备份，主要靠事件触发） */
+
+  /* 瞬时 TPS：用最近 3 秒窗口内 streamTokenCount 的增量 / 实际跨度，
+     不再用「从流式开始累计 token ÷ 累计时长」的原始平均口径（长回复会被全程摊平）。 */
+  var TPS_WINDOW_MS = 3000; /* 观察窗口 */
+  var TPS_MIN_SPAN_MS = 700; /* 窗口内至少要有这么长的跨度才出数（避免一两个点算出爆表值） */
+  var TPS_SAMPLE_KEEP_MS = 9000; /* 样本保留上限，够覆盖窗口 + 几次轮询 */
 
   /* ============================ 配置 ============================ */
 
@@ -507,6 +515,8 @@
     runtime: null,
     agg: null,
     rounds: 0,
+    /* 流式 token 采样：[{ t, count }]，用于 3 秒窗口瞬时 TPS */
+    samples: [],
     prices: null,
     priceSource: "builtin",
     pricesUpdatedAt: 0,
@@ -723,7 +733,7 @@
     row.setAttribute("data-snow-stats-pills", "1");
 
     var rounds = pill("rounds", "activity", "轮次 = 用户消息数；步数 = 模型请求数（含工具步）");
-    var speed = pill("speed", "timer", "流式进行中显示首 token 与输出速度；空闲时显示上一轮耗时");
+    var speed = pill("speed", "timer", "流式中显示首 token 与瞬时输出速度（最近 3 秒窗口内 token 增量 / 实际跨度）；空闲时显示上一轮耗时");
     var cache = pill("cache", "database", "缓存命中率：与输入框右侧用量环同源（当前上下文口径，缓存读 ÷ 输入）");
     var usage = pill("usage", "arrow-down-up", "本会话累计输入（含缓存读）与输出 token");
     var costBtn = el("button", PREFIX + "-pill " + PREFIX + "-cost");
@@ -777,15 +787,53 @@
     if (visible && item.text.textContent !== text) item.text.textContent = text;
   }
 
+  function resetSpeedSamples() {
+    state.samples = [];
+  }
+
+  /** 每次 runtime 轮询成功后记账：流式期间记录 (时间戳, 累计输出 token) */
+  function pushSpeedSample(rt) {
+    if (!rt || !rt.isStreaming) return;
+    var count = clamp0(rt.streamTokenCount);
+    var now = Date.now();
+    var arr = state.samples;
+    if (arr.length && count < arr[arr.length - 1].count) resetSpeedSamples(); /* 宿主重置计数（新一步）→ 重新起算 */
+    arr = state.samples;
+    arr.push({ t: now, count: count });
+    while (arr.length > 2 && now - arr[0].t > TPS_SAMPLE_KEEP_MS) arr.shift();
+  }
+
+  /**
+   * 瞬时 TPS：以最近一次采样为终点，回溯到 3 秒窗口内最早的一个样本，
+   * 用 (token 增量 ÷ 实际跨度) 得速率——跨度略大于 3s（受 1s 轮询粒度影响）时速率本身仍然准确。
+   * 样本不足（流式刚开始）返回 null，此时药丸只显示首 token。
+   */
+  function instantTps() {
+    var arr = state.samples;
+    if (!arr || arr.length < 2) return null;
+    var newest = arr[arr.length - 1];
+    var base = null;
+    var i;
+    for (i = arr.length - 1; i >= 0; i--) {
+      if (newest.t - arr[i].t >= TPS_WINDOW_MS) {
+        base = arr[i];
+        break;
+      }
+    }
+    if (!base) base = arr[0];
+    var span = newest.t - base.t;
+    if (span < TPS_MIN_SPAN_MS) return null;
+    var delta = newest.count - base.count;
+    if (delta < 0) return null;
+    return delta / (span / 1000);
+  }
+
   function speedInfo() {
     var rt = state.runtime;
     if (!rt) return null;
     if (rt.isStreaming) {
-      var count = clamp0(rt.streamTokenCount);
-      var elapsed = clamp0(rt.streamElapsedMs);
       var ttft = typeof rt.streamTtftMs === "number" && rt.streamTtftMs > 0 ? rt.streamTtftMs : null;
-      var tps = elapsed > 0 && count > 0 ? count / (elapsed / 1000) : null;
-      return { streaming: true, ttft: ttft, tps: tps, lastRun: null };
+      return { streaming: true, ttft: ttft, tps: instantTps(), lastRun: null };
     }
     var last = typeof rt.lastRunDurationMs === "number" && rt.lastRunDurationMs > 0 ? rt.lastRunDurationMs : null;
     return { streaming: false, ttft: null, tps: null, lastRun: last };
@@ -1127,6 +1175,7 @@
     if (!state.conversationId) return Promise.resolve();
     return fetchRuntime()
       .then(function () {
+        pushSpeedSample(state.runtime);
         render();
       })
       .catch(function (e) {
@@ -1197,6 +1246,7 @@
     state.rounds = 0;
     state.lastError = null;
     state.updatedAt = 0;
+    resetSpeedSamples();
     render();
     if (!cid) return;
     refreshPrices();
@@ -1262,11 +1312,13 @@
         syncConversation(true);
       });
       snow.on("stream-end", function () {
+        resetSpeedSamples();
         pollRuntime();
         pollUsage(true);
         pollRounds(true);
       });
       snow.on("stream-start", function () {
+        resetSpeedSamples();
         pollRuntime();
       });
     }

@@ -9,7 +9,7 @@ Snow App 客户端脚本：把当前会话的统计做成一行药丸，挂在**
 | 药丸 | 内容 | 数据来源 |
 | --- | --- | --- |
 | 轮次 · 步数 | `N 轮 · M 步`（轮 = 用户消息数，步 = 模型请求数，含工具步） | `messages.userMessages` + `usage.records` |
-| 速度 | 流式中：`首 token 1.2s · 45.6 tok/s`；空闲：`上轮 12.3s` | `runtime.conversation` |
+| 速度 | 流式中：`首 token 1.2s · 45.6 tok/s`（3 秒滑动窗口瞬时 TPS）；空闲：`上轮 12.3s` | `runtime.conversation` |
 | 缓存命中 | `缓存命中 94.9%`（缓存读 ÷ 输入，与输入框右侧用量环同源同公式） | `runtime.conversation.tokenUsage` |
 | 输入 / 输出 | `输入 1.0M · 输出 5k` | `usage.records` 聚合 |
 | 成本 | `¥0.157`，点击展开明细 | `usage.records` × 单价表（联动看板） |
@@ -20,6 +20,19 @@ Snow App 客户端脚本：把当前会话的统计做成一行药丸，挂在**
 - 窄窗口：`<=760px` 收起「轮次·步数」，`<=620px` 再收起速度，其余药丸自动换行，不整体缩放。
 - 新会话（还没有 conversationId）时统计条整行隐藏；会话开始后自动出现。
 - 全部颜色取宿主 CSS 变量（`--text-secondary` / `--bg-secondary` / `--border-color` / `--accent-blue` 等），跟随明暗主题；图标为内嵌 Lucide 路径，无外部依赖、无网络请求。
+
+## 速度口径（3 秒滑窗瞬时 TPS）
+
+流式期间每 1s 采一次 `runtime.conversation.streamTokenCount`，用**最近 3 秒窗口**内最早样本到最新样本的 token 增量 ÷ 实际跨度算速率：
+
+```
+tps = (count_newest − count_windowStart) / (Δt / 1000)
+```
+
+- 不再用「累计输出 token ÷ 流式累计时长」的平均口径——长回复会被全程摊平，看不出当前快慢。
+- 窗口起点取「距今 ≥ 3s 的最近一个样本」，实际跨度落在 3–4s（受 1s 轮询粒度影响），速率本身仍准确。
+- 跨度 < 700ms 或样本不足 2 个时不出数，药丸只显示首 token；`streamTokenCount` 变小（宿主新起一步）时样本自动重置。
+- 采样在 `pollRuntime`（1s）里做，`stream-start` / `stream-end` / 切换会话时清空样本。
 
 ## 缓存命中率口径（与输入框右侧用量环一致）
 
