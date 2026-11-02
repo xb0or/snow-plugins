@@ -1,0 +1,33 @@
+{
+  "id": "com.seagull.annotate-board",
+  "name": {
+    "default": "Annotate Board",
+    "zh-CN": "批注工作台"
+  },
+  "description": {
+    "default": "Annotation workspace: import an image or video, annotate regions, explode layouts, then export feedback JSON or annotated PNG into the workspace.",
+    "zh-CN": "批注工作台：导入图片或视频、区域批注、大爆炸布局，导出反馈 JSON 或标注 PNG 到工作区。"
+  },
+  "version": "0.1.0",
+  "author": "kedou",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "icon": "lucide:PenTool",
+  "renderMode": "iframe",
+  "entry": "index.js",
+  "panels": [
+    {
+      "id": "board",
+      "title": {
+        "default": "Annotate Board",
+        "zh-CN": "批注工作台"
+      },
+      "icon": "lucide:PenTool"
+    }
+  ],
+  "privacy": {
+    "scopes": [
+      "filesystem"
+    ],
+    "note": "导出时把 JSON/PNG/ZIP 写入仓库根 .output/annotate-board 目录，并把 JSON 写回聊天草稿（失败时写入剪贴板）。"
+  }
+}

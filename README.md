@@ -10,6 +10,7 @@
 - [snow-stt-launcher](./snow-stt-launcher) — 本地语音服务（面板插件）：启动 / 停止 / 重启本机 whisper.cpp 转写服务，自动择优 CUDA / Vulkan / CPU 推理后端，并管理识别模型
 - [snow-anon-chat](./snow-anon-chat) — 匿名聊天：接入 hack.chat（界面显示 ?SNOW），昵称持久化不随重连变化；支持 Markdown 消息格式（粗体/斜体/代码块/链接/图片/表格/公式源码等，面板内置写法帮助）；因宿主 CSP 限制经本机零依赖桥进程中转，支持代理自动探测，需 Node.js 14+
 - [snow-side-ask](./snow-side-ask) — 旁路问答：在面板内用自己的输入框提问，回答只流式显示在面板里，不回填输入框、不发送、不写入会话历史；自动携带焦点会话作为上下文并在切换会话时刷新；「进度报告」可按 `/btw` 语义对主会话当前任务生成进度总结（主会话运行中还能按间隔自动生成）；走宿主内部流式通道且请求不传 conversationId，宿主升级后可能失效
+- [snow-annotate-board](./snow-annotate-board) — 批注工作台：导入图片（拖入 / 选择 / 粘贴）或视频，做区域批注、移动缩放与大爆炸布局，导出反馈 JSON / 标注 PNG / 项目 ZIP 到工作区（`.output/annotate-board/`）并把 JSON 直接回填聊天草稿；iframe 面板隔离样式，导出经 Snow 桥落盘（原生 `<a download>` 与剪贴板在 iframe 内不可用，均已接管）；内含按 PolyForm Noncommercial 1.0.0 授权的第三方前端代码，非商业使用
 
 ## OAuth 插件
 
@@ -25,4 +26,4 @@
 > 「本地语音服务」的面板插件与客户端脚本**需配合使用**：面板负责起服务与管理模型，
 > 脚本负责录音与朗读。只装其一无法完成语音输入——两者通过 `127.0.0.1:8791` 通信，可独立升级。
 
-零依赖、纯原生 JS + 宿主 React，MIT。
+零依赖、纯原生 JS + 宿主 React，MIT（例外：snow-annotate-board 内含按 PolyForm Noncommercial 1.0.0 授权的第三方前端代码，仅限非商业用途）。
