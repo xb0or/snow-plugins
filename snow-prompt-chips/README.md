@@ -41,11 +41,25 @@ config-set scope=userscripts key="new" value={sourcePath: "<绝对路径>/snow-p
 ## 实现要点
 
 - **挂载位置**：只用宿主稳定契约（锚点 `chat.input`、插槽 `chat.input.actions`），不依赖内部 class。插槽是 `display:flex; flex-wrap:wrap`，容器用 `order:-1` 排在按钮行首，`flex:1 1 auto` 与其它按钮同行；条内 `flex-wrap:wrap`，提示词多时自动换行（超过 56px 高度则在条内纵向滚动）。
-- **发送通道**：`snow.write.run("conversations.sendMessage", { conversationId, text })` —— 宿主内部发送器直接投递到会话，不经过输入区，会话忙碌时由宿主排队；返回 `ok` 才提示「已发送」。输入区是新会话草稿（无 `conversationId`）时改用 `conversations.create({ text, autoReply: true })` 建会话并 `activate` 过去。该动作属于 `conversations` 隐私域，脚本已在元数据头声明 `@snow-privacy conversations`。
-  - 反例记录：`snow.client.sendMessage` / `chatInput.sendMessage` 在 Snow 0.5.8 上会走「写入输入区 → 同 tick 调 handleSend」路径，React state 未提交，实测**只把内容留在输入框、并未发出**（v1.0.0 的 bug），故不再作为发送主路径；失败时只用 `client.insertInputText` 兜底填入并如实提示「已填入输入框」。
+- **发送通道**：点击即发送走宿主**输入区自己的发送链路** `snow.write.run("chatInput.sendMessage", { text })`（宿主派发 `PLUGIN_SEND_INPUT_MESSAGE_EVENT` → `restoreContent(text)` → `handleSend("queue")`），因此这次发送会带上输入区里选中的**模型 / API 档案 / 思考强度 / 快速模式**，与手打一条再回车完全一致；输入区是新建会话草稿时，也由宿主自己的发送链路建会话，所以新会话用的就是你在对话框里选的模型。宿主处理器的 `setTimeout(0)` 与 React 提交存在竞态（0.5.8 实测过「只填不发」），脚本按「输入框是否被清空」校验，未清空会重试（最多 3 次），仍失败则如实提示「已填入输入框，请按回车发送」。发送会清空输入区，脚本会把点芯片前已输入的内容（纯文本）回填回去。
+  - **降级通道**：宿主没有 `chatInput.sendMessage` 时退回 `conversations.sendMessage` / `conversations.create({ text, autoReply: true })`（宿主内部发送器直接投递到会话，不经过输入区）。这两个动作**不接受 `model` 参数**，会话会回落到 API 档案的默认模型——v1.0.2 及以前只走这条链路，新会话才会出现「用默认模型而不是对话框里选的模型发送」。
+  - 用到的写动作都属于 `conversations` 隐私域，脚本已在元数据头声明 `@snow-privacy conversations`。
 - **重挂兜底**：`MutationObserver` 监听 DOM，节点被 React 重建后自动重挂；卸载时清理节点、样式、监听与弹窗。
 - **主题跟随**：全部颜色取宿主 CSS 变量（`--bg-primary`、`--bg-secondary`、`--text-primary`、`--border-color`、`--accent-blue` 等），自动适配明暗主题。
 - 图标为内嵌 Lucide 路径（客户端脚本环境没有全局 lucide 对象），无外部依赖、无网络访问。
+
+## 验证（Snow App 0.5.10，真机）
+
+一次性探测脚本 `probe/probe25-chip-model.user.js`：把输入区模型切到非默认值，再点芯片，然后读落库消息的 `model`（临时会话 / 新建会话草稿两条路径，自带清理）。
+
+| 场景 | 输入区选中模型 | 落库消息的 `model` |
+| --- | --- | --- |
+| 已有会话（临时会话内点芯片） | `cline-free/solar-mini4` | 用户消息与 AI 回复都是 `cline-free/solar-mini4` |
+| 新建会话草稿（新建会话 → 点芯片） | `cline-free/solar-mini4` | 宿主新建的会话里，两条消息都是 `cline-free/solar-mini4` |
+
+档案 `agent2api` 的默认模型是 `deepseek-v4.1-flash`，上表与它不同，即证明发送用的是输入区里选中的模型（v1.0.2 走 `conversations.create` / `conversations.sendMessage` 时会回落成默认模型）。附带证据：宿主写域清单里 `chatInput.sendMessage`（`scope: conversations`）为 `granted: true`；点击后 toast 为「已发送」，输入框被清空，新建会话由宿主自己的发送链路创建。
+
+首次探测 `probe/probe24-chip-model.user.js` 因下拉交互写错（把根视图里带 `title` 的「快速模式」项误判成模型清单）没切成模型，结论无效，保留作对照。
 
 ## 元数据
 
@@ -58,8 +72,8 @@ config-set scope=userscripts key="new" value={sourcePath: "<绝对路径>/snow-p
 
 ## 已知限制
 
-- 点击发送走的是宿主客户端动作，调用是"发射后不管"（宿主内部已 catch 异常），脚本无法拿到逐次发送的成功/失败回执；回退到写动作时才会有 `ok/error` 提示。
-- 输入框里已有的草稿是否受影响由宿主决定，脚本不做额外处理。
+- 提示里的「已发送」按宿主的输入区状态推断（输入框被清空即视为已发出）：发送由宿主内部流程完成，脚本拿不到逐次投递回执；走降级通道（写动作）时才有 `ok/error` 回执。
+- 点芯片发送会清空输入区，脚本只按**纯文本**回填原内容；原草稿里的文件 chip 无法还原（会在 toast 里提示已保留原输入内容）。
 - 提示词条高度上限 56px，提示词非常多时条内滚动，不会把输入区撑高。
 
 ## 卸载

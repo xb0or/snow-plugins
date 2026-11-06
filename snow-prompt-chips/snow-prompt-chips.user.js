@@ -2,7 +2,7 @@
 // @name         便捷提示词
 // @name:en      Prompt Chips
 // @namespace    kedou
-// @version      1.0.2
+// @version      1.0.3
 // @description  在聊天输入框上方显示自定义的便捷提示词，点击即直接发送（可切换为仅填入输入框）；支持增删改与排序、JSON 备份导出导入
 // @author       kedou
 // @license      MIT
@@ -32,16 +32,21 @@
  *   （与其它插件按钮同行），即位于输入框正上方；不依赖任何内部 class 层级，
  *   插槽内容由宿主在脚本卸载时清理。
  *
- * 发送通道（宿主源码 + 实测）：
- *   snow.write.run("conversations.sendMessage", { conversationId, text })
- *     由宿主内部发送器直接投递到指定会话，不经过输入区，返回 { ok, data: { status } }
- *     （会话忙碌时 status 非 "started"，即已排队）。
- *   输入区若是新会话草稿（snow.context.conversationId 为空）：
- *     conversations.create({ directoryId, title, text, autoReply: true }) 建会话，再 activate 切过去。
- *   注意：snow.client.sendMessage / chatInput.sendMessage 在 Snow 0.5.8 上走的是
- *     「restoreContent 写入输入区 → 同 tick 调 handleSend("queue")」路径，React state 尚未提交，
- *     实测只把文本留在输入框、并未真正发出，故不再作为发送主路径；
- *     仅在上述通道失败时用 client.insertInputText 兜底填入，toast 如实提示「已填入输入框」。
+ * 发送通道（宿主源码 + 真机实测，Snow 0.5.10）：
+ *   snow.write.run("chatInput.sendMessage", { text })   ← 主通道
+ *     派发宿主的 PLUGIN_SEND_INPUT_MESSAGE_EVENT，走输入区自己的发送链路
+ *     （restoreContent(text) → handleSend("queue")），因此本次发送会带上输入区里选中的
+ *     模型 / API 档案 / 思考强度 / 快速模式，与用户手打一条再回车完全一致；
+ *     新会话草稿也由宿主自己建会话，不会再出现「新会话用默认模型发送」。
+ *     宿主处理器是「写输入区 → setTimeout(0) → handleSend」，存在 React 提交竞态
+ *     （0.5.8 实测过只填不发），故脚本按「输入框是否被清空」校验，未清空就重试。
+ *   snow.write.run("conversations.sendMessage", { conversationId, text })  ← 降级通道
+ *     conversations.create({ directoryId, title, text, autoReply: true })   ← 降级通道
+ *     宿主内部发送器直接投递到指定会话，不经过输入区；两者都不接受 model 参数，
+ *     实测会话回落到档案默认模型（即 v1.0.2 的 bug），只在宿主没有
+ *     chatInput.sendMessage 时使用。
+ *   兜底：发送通道全不可用时用 snow.client.insertInputText 填入输入框，
+ *     toast 如实提示「已填入输入框」。
  *
  * 数据：GM_getValue/GM_setValue 持久化，键 spc.prompts（提示词数组）与 spc.config（开关）。
  */
@@ -325,6 +330,92 @@
     return "未知原因";
   }
 
+  /* ---------- 主通道：宿主输入区的发送链路（带输入区选中的模型） ---------- */
+
+  /* 输入区可编辑元素：宿主把输入内容放在 [data-snow-anchor="chat.input"] 的 contenteditable 上，
+     发送成功时宿主会清空它的 innerHTML 并把 data-empty 置为 "true"（可用于校验是否真的发出）。 */
+  function inputBox() {
+    return document.querySelector('[data-snow-anchor="chat.input"] [contenteditable="true"]');
+  }
+
+  function inputSnapshot() {
+    var box = inputBox();
+    if (!box) return null;
+    var text = box.innerText || box.textContent || "";
+    return {
+      empty: box.getAttribute("data-empty") === "true",
+      text: text.replace(/\u200b/g, "").trim()
+    };
+  }
+
+  /* 回填点芯片前已输入的内容：发送会清空输入区，不还原就等于吞掉用户草稿；
+     用户自己已经开始输入新内容时不覆盖。 */
+  function restoreDraft(text) {
+    if (!text) return;
+    setTimeout(function () {
+      var now = inputSnapshot();
+      if (!now || !now.empty) return;
+      snow.write.run("chatInput.insertText", { text: text }).catch(function (e) {
+        log("回填原输入内容失败：" + e);
+      });
+    }, 150);
+  }
+
+  /* 主通道：chatInput.sendMessage。宿主收到后走输入区自己的 handleSend，
+     本次发送因此携带输入区选中的模型 / API 档案 / 思考强度 / 快速模式；
+     输入区是新建会话草稿时，也由宿主自己的发送链路建会话（带同一个模型）。
+     宿主实现是「写输入区 → setTimeout(0) → handleSend」，存在 React 提交竞态，
+     故按「输入框是否被清空」校验：未清空说明这次没发出去，重试；连续失败则如实提示。
+     onUnavailable 表示该动作在当前宿主不存在 / 被拒绝，由调用方降级到旧通道。 */
+  var SEND_TRIES = 3;
+  var SEND_RETRY_MS = 350;
+
+  function sendViaInput(item, onUnavailable, cb) {
+    var before = inputSnapshot();
+    if (!before) {
+      onUnavailable({ error: "找不到聊天输入区" });
+      return;
+    }
+    var draft = before.empty ? "" : before.text;
+    var tries = 0;
+
+    function dispatch() {
+      snow.write.run("chatInput.sendMessage", { text: item.text })
+        .then(function (res) {
+          if (!res || !res.ok) {
+            onUnavailable(res);
+            return;
+          }
+          tries += 1;
+          setTimeout(verify, SEND_RETRY_MS);
+        })
+        .catch(function (err) {
+          onUnavailable({ error: String(err) });
+        });
+    }
+
+    function verify() {
+      var now = inputSnapshot();
+      if (!now) {
+        /* 输入区已卸载（视图切走），无从校验，按已提交处理 */
+        cb(true, "已提交发送：" + displayName(item) + "（未能校验输入区）");
+        return;
+      }
+      if (now.empty) {
+        restoreDraft(draft);
+        cb(true, "已发送：" + displayName(item) + (draft ? "（已保留原输入内容）" : ""));
+        return;
+      }
+      if (tries < SEND_TRIES) {
+        dispatch();
+        return;
+      }
+      cb(false, "已填入输入框，请按回车发送：" + displayName(item));
+    }
+
+    dispatch();
+  }
+
   /* 写系统剪贴板：优先宿主写动作（免隐私声明），回退 GM_setClipboard */
   function writeClipboard(text) {
     if (snow.write && typeof snow.write.run === "function") {
@@ -348,7 +439,8 @@
     toast("当前环境不支持写剪贴板，请在上方文本框里手动全选复制", "err");
   }
 
-  /* 直接投递到指定会话：走宿主内部发送通道，不经过输入区；会话忙碌时由宿主排队 */
+  /* 降级通道①：直接投递到指定会话，不经过输入区，会话忙碌时由宿主排队。
+     宿主只接受 conversationId + text，本次发送不带输入区选中的模型（会话用档案默认模型）。 */
   function sendToConversation(conversationId, item, cb) {
     snow.write.run("conversations.sendMessage", { conversationId: conversationId, text: item.text })
       .then(function (res) {
@@ -366,7 +458,8 @@
       });
   }
 
-  /* 输入区是新会话草稿（无 conversationId）：新建会话并投递，随后切过去 */
+  /* 降级通道②：输入区是新会话草稿（无 conversationId）时新建会话并投递，随后切过去。
+     conversations.create 同样没有 model 参数，新会话会用档案默认模型——v1.0.2 的 bug 就在这里。 */
   function sendAsNewConversation(item, cb) {
     var ctx = snow.context || {};
     if (!ctx.projectId) {
@@ -404,6 +497,13 @@
     toast(message, ok ? "ok" : "err");
   }
 
+  /* 降级总入口：主通道在当前宿主不可用时，退回「直接投递到会话」（不带模型选择） */
+  function legacySend(item) {
+    var ctx = snow.context || {};
+    if (ctx.conversationId) sendToConversation(ctx.conversationId, item, finish);
+    else sendAsNewConversation(item, finish);
+  }
+
   function onChipClick(item) {
     if (!cfg.direct) {
       var r = fillInput(item);
@@ -419,9 +519,12 @@
       return;
     }
 
-    var ctx = snow.context || {};
-    if (ctx.conversationId) sendToConversation(ctx.conversationId, item, finish);
-    else sendAsNewConversation(item, finish);
+    /* 主通道：宿主输入区自己的发送链路，本次发送带上输入区选中的模型 / 档案；
+       该动作在当前宿主不存在或被拒绝时，降级到「直接投递到会话」。 */
+    sendViaInput(item, function (res) {
+      log("chatInput.sendMessage 不可用（" + errText(res) + "），降级到直接投递");
+      legacySend(item);
+    }, finish);
   }
 
   /* ============================ 提示词条 ============================ */
