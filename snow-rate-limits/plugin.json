@@ -1,0 +1,37 @@
+{
+  "id": "com.seagull.rate-limits",
+  "name": {
+    "default": "Rate Metrics",
+    "zh-CN": "用量指标"
+  },
+  "description": {
+    "default": "RPD, TPD, RPM, ITPM and OTPM from local usage: range averages, peaks and live rolling windows.",
+    "zh-CN": "只统计 RPD、TPD、RPM、ITPM、OTPM 五个指标：区间均值、峰值与实时滚动窗口；不区分 API 档案。"
+  },
+  "version": "0.7.0",
+  "author": "kedou",
+  "license": "MIT",
+  "icon": "lucide:Gauge",
+  "kind": "plugin",
+  "renderMode": "esm",
+  "entry": "index.js",
+  "styles": ["style.css"],
+  "locales": {
+    "en": "locales/en.json",
+    "zh-CN": "locales/zh-CN.json"
+  },
+  "panels": [
+    {
+      "id": "main",
+      "title": {
+        "default": "Rate Metrics",
+        "zh-CN": "用量指标"
+      },
+      "icon": "lucide:Gauge"
+    }
+  ],
+  "privacy": {
+    "scopes": ["usage"],
+    "note": "读取本地用量（请求完成时间、输入/输出 token）计算 RPD、TPD、RPM、ITPM、OTPM；不联网、不上传任何数据。"
+  }
+}

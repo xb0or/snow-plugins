@@ -1,0 +1,46 @@
+{
+  "header.title": "用量指标",
+  "header.refresh": "刷新",
+  "header.inflight": "在途 {{count}} 会话 · {{tokens}} tok",
+  "header.inflightNone": "无在途会话",
+
+  "poster.kicker": "本机用量",
+
+  "state.loading": "正在读取用量…",
+  "state.denied": "usage 域读取被拒：请在 plugin.json 的 privacy 中声明 \"usage\" 后重新安装插件。",
+  "state.error": "读取用量失败：{{error}}",
+  "state.retry": "重试",
+
+  "range.title": "统计范围",
+  "range.today": "今天",
+  "range.yesterday": "昨天",
+  "range.d7": "近 7 天",
+  "range.d30": "近 30 天",
+  "range.month": "本月",
+  "range.lastMonth": "上月",
+  "range.all": "全部",
+  "range.custom": "自定义",
+  "range.from": "起始日期",
+  "range.to": "结束日期",
+  "range.invalid": "请选择合法的日期范围：起始日期不能晚于结束日期。",
+
+  "metric.rpd": "每日请求",
+  "metric.tpd": "每日 Token",
+  "metric.rpm": "每分钟请求",
+  "metric.itpm": "输入 Token/分",
+  "metric.otpm": "输出 Token/分",
+
+  "cell.perDay": "日均",
+  "cell.today": "今日",
+  "cell.peak": "峰值",
+  "cell.live": "实时",
+  "cell.cursor": "光标",
+
+  "unit.perMinute": "/分",
+  "unit.perDay": "/日",
+
+  "hint.noPeaks": "范围超过 36 小时，不计算分钟峰值。",
+  "hint.truncated": "明细超过 {{n}} 条，峰值为已拉取记录的下界。",
+
+  "footer.note": "区间均值按选定跨度折算；按请求完成时刻记账，同一密钥下其它客户端的请求不计入。"
+}

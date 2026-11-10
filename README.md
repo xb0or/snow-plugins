@@ -12,6 +12,8 @@
 - [snow-side-ask](./snow-side-ask) — 旁路问答：在面板内用自己的输入框提问，回答只流式显示在面板里，不回填输入框、不发送、不写入会话历史；自动携带焦点会话作为上下文并在切换会话时刷新；「进度报告」可按 `/btw` 语义对主会话当前任务生成进度总结（主会话运行中还能按间隔自动生成）；走宿主内部流式通道且请求不传 conversationId，宿主升级后可能失效
 - [snow-annotate-board](./snow-annotate-board) — 批注工作台：导入图片（拖入 / 选择 / 粘贴）或视频，做区域批注、移动缩放与大爆炸布局，导出反馈 JSON / 标注 PNG / 项目 ZIP 到工作区（`.output/annotate-board/`）并把 JSON 直接回填聊天草稿；iframe 面板隔离样式，导出经 Snow 桥落盘（原生 `<a download>` 与剪贴板在 iframe 内不可用，均已接管）；内含按 PolyForm Noncommercial 1.0.0 授权的第三方前端代码，非商业使用
 
+- [snow-rate-limits](./snow-rate-limits) — 用量指标：只统计 RPD / TPD / RPM / ITPM / OTPM 五个指标，区间均值 + 分钟峰值 + 实时滚动窗口，指针停在曲线上可读该时刻数值；只读本机 usage 域，不区分 API 档案
+
 ## OAuth 插件
 
 隐藏

@@ -1,0 +1,46 @@
+{
+  "header.title": "Rate metrics",
+  "header.refresh": "Refresh",
+  "header.inflight": "{{count}} live · {{tokens}} tok",
+  "header.inflightNone": "No live sessions",
+
+  "poster.kicker": "Local usage",
+
+  "state.loading": "Reading usage...",
+  "state.denied": "The usage domain is denied: declare \"usage\" in plugin.json privacy and reinstall the plugin.",
+  "state.error": "Failed to read usage: {{error}}",
+  "state.retry": "Retry",
+
+  "range.title": "Range",
+  "range.today": "Today",
+  "range.yesterday": "Yesterday",
+  "range.d7": "7 days",
+  "range.d30": "30 days",
+  "range.month": "This month",
+  "range.lastMonth": "Last month",
+  "range.all": "All",
+  "range.custom": "Custom",
+  "range.from": "From",
+  "range.to": "To",
+  "range.invalid": "Pick a valid range: the start date cannot be later than the end date.",
+
+  "metric.rpd": "Daily requests",
+  "metric.tpd": "Daily tokens",
+  "metric.rpm": "Requests/min",
+  "metric.itpm": "Input tokens/min",
+  "metric.otpm": "Output tokens/min",
+
+  "cell.perDay": "Per day",
+  "cell.today": "Today",
+  "cell.peak": "Peak",
+  "cell.live": "Live",
+  "cell.cursor": "Cursor",
+
+  "unit.perMinute": "/min",
+  "unit.perDay": "/day",
+
+  "hint.noPeaks": "Ranges over 36 hours do not compute minute peaks.",
+  "hint.truncated": "More than {{n}} records: peaks are a lower bound of the fetched records.",
+
+  "footer.note": "Range averages are normalized by the selected span; values are booked at request completion and exclude other clients on the same key."
+}
