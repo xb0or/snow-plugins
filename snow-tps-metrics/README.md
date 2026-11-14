@@ -1,30 +1,45 @@
-# snow-tps-metrics
+# snow-tps-metrics（任务中心 / Mission Control）
 
-Snow App 面板插件：按行业惯例口径计算当前会话的 TPS、TTFT 等流式指标，并显示各会话当前使用的模型。
+Snow App 面板插件：按行业惯例口径计算全部会话的 TPS、TTFT 等流式指标，实时总览所有运行中会话（含子代理）的状态与所用模型。
+
+## 界面
+
+- **合计速度 Hero**：全部运行中会话的解码 TPS 之和 + 最近 48 秒迷你曲线；下方为运行中会话数、本轮 token 合计、最长运行时长。
+- **指标网格**：瞬时 TPS（各会话 3 秒窗口求和）、总体均值、平均 TTFT、累计输出。
+- **运行中会话**：每会话一张卡片，含状态、模型、解码/瞬时 TPS、TTFT、token、时长；当前会话与需关注会话有独立描边。
+- **子代理**：当前会话派生的子代理及其运行状态。
+- **口径说明**：折叠区，默认收起。
+
+响应式：根节点建立行内尺寸容器，280–640px 宽度下按容器查询调整布局（窄面板单列、宽面板双列卡片与四列指标），不使用媒体查询当面板断点。配色跟随宿主主题变量，深浅主题均可读。
 
 ## 口径
+
+除「解码 TPS / 瞬时 TPS」是按会话计算后再求和外，其余指标均为全部会话的累计汇总。
 
 | 指标 | 公式 |
 | --- | --- |
 | TTFT | run 开始到首个 token 的耗时（应用原始值） |
-| 实时 TPS | `tokenCount / (时长 − TTFT)`，解码口径，剔除首 token 等待 |
-| 瞬时 TPS | 3s 滚动窗口内 `Δtoken / Δt` |
-| 会话平均 | `outputTokens / totalDurationMs`（含 TTFT/工具耗时）与 `outputTokens / (totalDurationMs − runTtftSumMs)`（解码口径） |
-| 平均 TTFT | `runTtftSumMs / runRequestCount` |
+| 解码 TPS | `tokenCount / (时长 − TTFT)`，剔除首 token 等待 |
+| 合计速度 | 全部运行中会话的解码 TPS 之和；首 token 未到的会话不计入 |
+| 瞬时 TPS | 3s 滚动窗口内每个会话的 `Δtoken / Δt`，再求和 |
+| 总体均值 | `Σ累计输出 / (Σ累计时长 − Σ累计 TTFT)` |
+| 平均 TTFT | `Σ累计 TTFT / Σ累计请求数` |
 
 ## 数据源
 
-- `runtime` 元数据域（免声明，live 推送）：流式 token 数、起始时间、TTFT、并发会话列表
-- `conversations` 元数据域（敏感域）：会话累计 token/耗时/请求数，以及会话的 `model` / `apiProfileName`（总览表“模型”列与标题行当前模型）
+- `runtime` 元数据域（免声明，live 推送）：并发会话列表、流式 token 数、起始时间、TTFT、当前会话 `subAgentSessions` 与 `attentionRequiredConversationIds`
+- `conversations` 元数据域（敏感域）：全部会话记录的累计 token/耗时/请求数，以及 `model` / `apiProfileName`
 
 ## 安装
 
-Snow App → 插件 → 插件市场搜索 "TPS"，或从 Release 下载 zip 后本地安装。
+Snow App → 插件 → 插件市场搜索「任务中心」，或从 Release 下载 zip 后本地安装。
 
 ## 限制
 
-- 会话累计均值的分母包含 run 内工具执行等非流式间隙（数据源未拆分），穿插工具调用的会话该均值偏低；实时解码口径不受影响。
+- 总体均值的分母包含 run 内工具执行等非流式间隙（数据源未拆分），穿插工具调用的会话该值偏低；实时解码口径不受影响。
+- `totalDurationMs` 为 0 的会话（应用侧未累计会话总时长）不计入总体均值，只计入平均 TTFT 与累计输出。
 - `streamTokenCount` 是否含 thinking token 取决于后端统计方式，插件侧无法拆分。
+- `conversations` 域按激活项目拉取，其他项目的运行中会话显示「模型未知」，其累计字段也不在总计内。
 
 ## License
 

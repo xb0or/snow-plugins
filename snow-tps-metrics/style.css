@@ -1,173 +1,654 @@
-/* 任务中心（Mission Control）面板样式，全部使用 .apx-mc- 前缀避免污染应用界面 */
+/* 任务中心（Mission Control）面板样式，选择器统一前缀 .mc-
+   配色策略：文字一律 inherit 跟随宿主面板，辅助信息用 opacity 压暗，
+   边框与底色用 currentColor 低比例混合，深浅主题均可用；强调色只出现在进度条、活动状态与焦点边框。
+   响应式：根节点建立行内尺寸容器，间距与字号用容器查询 / cqi 跟随面板宽度（280–640px），
+   不用媒体查询当面板断点。 */
 
-.apx-mc-root {
-  padding: 12px;
-  font-size: 12px;
-  line-height: 1.7;
-  overflow-y: auto;
+.mc-root {
+  container-type: inline-size;
+  container-name: mc-panel;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   height: 100%;
+  padding: 12px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  --mc-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  --mc-line: color-mix(in srgb, currentColor 13%, transparent);
+  --mc-line-strong: color-mix(in srgb, currentColor 26%, transparent);
+  --mc-fill: color-mix(in srgb, currentColor 5%, transparent);
+  --mc-accent: var(--accent-color, #3b82f6);
+  --mc-radius: var(--radius-md, 8px);
+  --mc-green: #22c55e;
+  --mc-orange: #f59e0b;
+  --mc-red: #ef4444;
+}
+
+.mc-root *,
+.mc-root *::before,
+.mc-root *::after {
   box-sizing: border-box;
 }
 
-/* 窄面板（约 300-400px）下允许横向滚动查看全部列 */
-.apx-mc-tablewrap {
-  overflow-x: auto;
-  margin-top: 4px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 6px;
+/* 面板高度有限时不允许子项被压扁，超出部分交给根节点滚动 */
+.mc-root > * {
+  flex: 0 0 auto;
 }
 
-.apx-mc-table {
-  border-collapse: collapse;
-  width: 100%;
-  min-width: 500px;
-  font-size: 11px;
+/* ---------- 头部 ---------- */
+
+.mc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.apx-mc-head {
-  text-align: left;
-  font-weight: 600;
-  opacity: 0.65;
-  padding: 4px 6px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
-  white-space: nowrap;
-  position: sticky;
-  top: 0;
-  background: inherit;
+.mc-head-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
-.apx-mc-cell {
-  padding: 4px 6px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
-  white-space: nowrap;
-  vertical-align: middle;
-}
-
-.apx-mc-num {
-  font-family: ui-monospace, monospace;
-  text-align: right;
-}
-
-/* 标题列：超长截断，完整内容放在 title 属性 */
-.apx-mc-titlecell {
-  max-width: 110px;
-  min-width: 90px;
-}
-
-.apx-mc-title {
+.mc-model-chip {
   display: inline-block;
-  max-width: 96px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  vertical-align: middle;
+  font-family: var(--mc-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  padding: 0 7px;
+  border: 1px solid var(--mc-line-strong);
+  border-radius: 999px;
+  opacity: 0.78;
 }
 
-/* 行 hover 效果 */
-.apx-mc-row:hover {
-  background: rgba(128, 128, 128, 0.12);
+.mc-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-family: var(--mc-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.8;
 }
 
-/* 当前焦点会话标记 */
-.apx-mc-current {
-  background: rgba(59, 130, 246, 0.08);
-}
-
-.apx-mc-tag {
-  display: inline-block;
-  margin-left: 4px;
-  font-size: 9px;
-  line-height: 1.4;
-  color: #3b82f6;
-  border: 1px solid currentColor;
-  border-radius: 6px;
-  padding: 0 4px;
-  vertical-align: middle;
-}
-
-/* 需要关注的会话：红色描边 + 红点 */
-.apx-mc-attention {
-  box-shadow: inset 0 0 0 1.5px #ef4444;
-}
-
-.apx-mc-attention-dot {
-  display: inline-block;
+.mc-live-dot {
+  flex: 0 0 auto;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #ef4444;
-  margin-left: 4px;
-  vertical-align: middle;
+  background: currentColor;
+  opacity: 0.4;
 }
 
-/* 模型列：超长截断，完整“模型 @ 档案”放在 title 属性 */
-.apx-mc-model {
-  display: inline-block;
-  max-width: 120px;
+.mc-live.is-hot {
+  color: var(--mc-green);
+  opacity: 1;
+}
+
+.mc-live.is-hot .mc-live-dot {
+  opacity: 1;
+  animation: mc-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes mc-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--mc-green) 45%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+/* ---------- 当前会话 Hero ---------- */
+
+.mc-hero {
+  position: relative;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--mc-line);
+  border-radius: var(--mc-radius);
+  background:
+    linear-gradient(165deg, color-mix(in srgb, var(--mc-accent) 11%, transparent), transparent 62%),
+    var(--mc-fill);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
-  font-family: ui-monospace, monospace;
 }
 
-.apx-mc-model-empty {
-  opacity: 0.45;
-}
-
-/* 标题行当前模型胶囊 */
-.apx-mc-model-head {
-  max-width: 180px;
-  font-weight: 400;
-  font-size: 10px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  border-radius: 8px;
-  padding: 0 6px;
-}
-
-/* 状态徽章 */
-.apx-mc-badge {
-  display: inline-block;
-  font-size: 10px;
-  line-height: 1.5;
-  border-radius: 8px;
-  padding: 0 6px;
-  border: 1px solid currentColor;
-}
-
-.apx-mc-b-green { color: #22c55e; }
-.apx-mc-b-orange { color: #f59e0b; }
-.apx-mc-b-red { color: #ef4444; }
-.apx-mc-b-gray { color: rgba(128, 128, 128, 0.8); }
-
-/* 空态 */
-.apx-mc-empty {
-  margin-top: 4px;
-  padding: 8px 6px;
-  opacity: 0.6;
-  border: 1px dashed rgba(128, 128, 128, 0.3);
-  border-radius: 6px;
-  text-align: center;
-}
-
-/* 子代理行 */
-.apx-mc-subrow {
+.mc-hero-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 4px;
 }
 
-/* 辅助说明与脚注 */
-.apx-mc-hint {
+.mc-hero-label {
+  font-family: var(--mc-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.66;
+}
+
+.mc-hero-value {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 2px;
+  min-width: 0;
+}
+
+.mc-hero-num {
+  font-family: var(--mc-mono);
+  font-size: clamp(30px, 11cqi, 46px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-hero-unit {
+  font-family: var(--mc-mono);
+  font-size: clamp(10px, 3cqi, 13px);
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.mc-hero-sub {
   margin-top: 4px;
+  font-size: 11.5px;
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-spark {
+  display: block;
+  width: 100%;
+  height: 32px;
+  margin-top: 6px;
+  overflow: visible;
+}
+
+.mc-spark-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.78;
+}
+
+.mc-spark-area {
+  fill: currentColor;
+  opacity: 0.08;
+}
+
+.mc-spark.is-empty {
+  border-bottom: 1px dashed var(--mc-line);
+}
+
+.mc-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--mc-line);
+}
+
+.mc-meta-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.mc-meta-k {
+  font-family: var(--mc-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.56;
+  white-space: nowrap;
+}
+
+.mc-meta-v {
+  font-family: var(--mc-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 指标网格 ---------- */
+
+.mc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mc-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--mc-line);
+  border-radius: var(--mc-radius);
+  background: var(--mc-fill);
+}
+
+.mc-cell-k {
+  font-family: var(--mc-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.56;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-cell-v {
+  font-family: var(--mc-mono);
+  font-size: clamp(14px, 4.4cqi, 19px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-cell.is-muted .mc-cell-v {
+  opacity: 0.45;
+}
+
+/* ---------- 区块 ---------- */
+
+.mc-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.mc-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mc-section-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.mc-section-count {
+  font-family: var(--mc-mono);
+  font-size: 9.5px;
+  line-height: 1.5;
+  padding: 0 5px;
+  border: 1px solid var(--mc-line);
+  border-radius: 999px;
+  opacity: 0.62;
+}
+
+.mc-section-note {
+  margin-left: auto;
   font-size: 10px;
+  opacity: 0.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 会话 / 子代理卡片 ---------- */
+
+.mc-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.mc-card {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--mc-line);
+  border-radius: var(--mc-radius);
+  background: var(--mc-fill);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.mc-card:hover {
+  border-color: var(--mc-line-strong);
+}
+
+.mc-card.is-current {
+  border-color: color-mix(in srgb, var(--mc-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--mc-accent) 7%, transparent);
+}
+
+.mc-card.is-attention {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mc-red) 62%, transparent);
+}
+
+.mc-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mc-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-card-tags {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.mc-card-model {
+  margin-top: 3px;
+  font-family: var(--mc-mono);
+  font-size: 10px;
+  opacity: 0.58;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-card-speed {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 7px;
+  min-width: 0;
+}
+
+.mc-speed-block {
+  min-width: 0;
+}
+
+.mc-speed-k {
+  font-family: var(--mc-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.54;
+  white-space: nowrap;
+}
+
+.mc-speed-v {
+  font-family: var(--mc-mono);
+  font-size: clamp(13px, 4cqi, 15px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-card-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 8px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--mc-line);
+}
+
+.mc-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.mc-metric-k {
+  font-family: var(--mc-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.54;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-metric-v {
+  font-family: var(--mc-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 标签与徽章 ---------- */
+
+.mc-tag {
+  display: inline-block;
+  font-family: var(--mc-mono);
+  font-size: 9px;
+  line-height: 1.6;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--mc-accent) 55%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--mc-accent) 85%, currentColor);
+  white-space: nowrap;
+}
+
+.mc-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mc-mono);
+  font-size: 9px;
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.mc-b-green {
+  color: var(--mc-green);
+}
+
+.mc-b-orange {
+  color: var(--mc-orange);
+}
+
+.mc-b-red {
+  color: var(--mc-red);
+}
+
+.mc-b-gray {
+  color: color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.mc-attention-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mc-red);
+}
+
+.mc-sub-desc {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.62;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 空态与说明 ---------- */
+
+.mc-empty {
+  padding: 14px 12px;
+  border: 1px dashed var(--mc-line-strong);
+  border-radius: var(--mc-radius);
+  text-align: center;
+  font-size: 11.5px;
+  opacity: 0.58;
+}
+
+.mc-hint {
+  font-size: 10.5px;
+  opacity: 0.5;
+}
+
+.mc-hint.is-warn {
+  opacity: 0.8;
+  color: var(--mc-orange);
+}
+
+.mc-details {
+  margin-top: 2px;
+  padding-top: 9px;
+  border-top: 1px solid var(--mc-line);
+}
+
+.mc-details summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--mc-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   opacity: 0.55;
 }
 
-.apx-mc-footnote {
-  margin-top: 12px;
+.mc-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.mc-details summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  transition: transform 0.2s ease;
+}
+
+.mc-details[open] summary {
+  opacity: 0.85;
+}
+
+.mc-details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.mc-details summary:focus-visible {
+  outline: 1px solid var(--mc-accent);
+  outline-offset: 2px;
+}
+
+.mc-details-body {
+  margin-top: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   font-size: 11px;
-  opacity: 0.55;
+  line-height: 1.6;
+  opacity: 0.58;
+}
+
+.mc-details-body b {
+  font-family: var(--mc-mono);
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+/* ---------- 容器查询 ---------- */
+
+@container mc-panel (min-width: 400px) {
+  .mc-root {
+    gap: 13px;
+    padding: 14px;
+  }
+
+  .mc-hero {
+    padding: 14px 14px 12px;
+  }
+
+  .mc-spark {
+    height: 38px;
+  }
+
+  .mc-cell {
+    padding: 9px 11px;
+  }
+}
+
+@container mc-panel (min-width: 520px) {
+  .mc-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container mc-panel (min-width: 560px) {
+  .mc-root {
+    padding: 16px 18px;
+  }
+
+  .mc-cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-live.is-hot .mc-live-dot {
+    animation: none;
+  }
+
+  .mc-card,
+  .mc-details summary::before {
+    transition: none;
+  }
 }

@@ -1,39 +1,42 @@
-// 任务中心（Mission Control）/ TPS / TTFT 指标面板
+// 任务中心（Mission Control）面板
+// 口径：全部会话汇总，不区分当前聚焦会话。
 // 数据源：
 //   runtime 域（免声明，live 推送）：
-//     conversation.streamTokenCount / streamStartedAt / streamTtftMs / runTtftMs
-//       —— 焦点会话当前 run 的实时流式指标
-//     conversation.attentionRequiredConversationIds
-//       —— 需要用户关注的会话 id 数组，对应总览表中红色描边行
-//     conversation.subAgentSessions
-//       —— 焦点会话的子代理会话列表，非空时单列一节
 //     streamingSessions[]
 //       —— 全部运行中会话（含子代理）：sessionKey / conversationId / title /
 //          isStreaming / isPaused / isAborting / tokenCount / elapsedMs /
 //          ttftMs / runTtftMs / startedAt
+//     conversation.attentionRequiredConversationIds
+//       —— 需要用户关注的会话 id 数组，对应会话卡片的红色描边
+//     conversation.subAgentSessions
+//       —— 以会话 id 为键的对象（Record<conversationId, SubAgentSessionEvent>），非数组
 //   conversations 域（敏感域，已在 plugin.json 声明）：
-//     会话累计 outputTokens / totalDurationMs / runTtftSumMs / runRequestCount
-//     会话记录的 model / apiProfileName —— 总览表“模型”列与标题行当前模型的数据源；
-//       域按激活项目拉取，其他项目的运行中会话查不到模型，显示“—”
+//     全部会话记录的累计字段：outputTokens / totalDurationMs / runTtftSumMs /
+//     runRequestCount；以及会话的 model / apiProfileName
+//       域按激活项目拉取，其他项目的运行中会话查不到模型，显示“模型未知”
 // 口径约定：
 //   TTFT      = run 开始到首个 token 的耗时
 //   解码 TPS  = tokenCount / (elapsedMs - TTFT)，行业基准惯例（如 vLLM benchmark_serving）
-//               剔除首 token 延迟；总览表与当前会话实时区共用 decodeTps()
-//   瞬时 TPS  = 3s 滚动窗口内 Δtoken / Δt；采样按 sessionKey 存于 samplesRef，
-//               覆盖全部 isStreaming 会话（不只焦点会话），非流式会话的旧采样自动清理
+//               剔除首 token 延迟；Hero 合计值与每张会话卡片共用 decodeTps()
+//   合计解码  = 全部运行中会话解码 TPS 之和；首 token 尚未到达的会话不计入
+//   瞬时 TPS  = 3s 滚动窗口内 Δtoken / Δt，按 sessionKey 采样后求和
 //   原始口径  = tokenCount / elapsedMs（含 TTFT，与应用内置显示一致）
 //   运行时长  = Date.now() - startedAt，每秒实时跳动；缺 startedAt 时退回 elapsedMs
-//   会话均值  = 累计 outputTokens / 对应时长；分母含 run 内工具执行等非流式间隙
-//               （数据源未拆分），穿插工具调用时该值偏低
+//   总体均值  = Σ累计输出 / (Σ累计时长 − Σ累计 TTFT)，分母含 run 内工具执行等
+//               非流式间隙（数据源未拆分），穿插工具调用时该值偏低
 
 const host = window.SnowAppPlugin;
 const React = host.React;
 const Icons = host.icons || {};
+const h = React.createElement;
 const { useState, useEffect, useRef } = React;
 
 const SAMPLE_WINDOW_MS = 3000;
 const CONV_POLL_MS = 2000;
 const TICK_MS = 1000;
+const SPARK_SLOTS = 48;
+
+/* ---------- 格式化 ---------- */
 
 function fmtMs(v) {
   if (!Number.isFinite(v) || v < 0) return "—";
@@ -42,6 +45,11 @@ function fmtMs(v) {
 
 function fmtTps(v) {
   return Number.isFinite(v) && v > 0 ? v.toFixed(1) + " tok/s" : "—";
+}
+
+function fmtHeroTps(v) {
+  if (!Number.isFinite(v) || v <= 0) return null;
+  return v >= 100 ? v.toFixed(0) : v.toFixed(1);
 }
 
 function fmtTokens(n) {
@@ -60,6 +68,8 @@ function fmtDuration(ms) {
   return Math.floor(m / 60) + " h " + (m % 60) + " m";
 }
 
+/* ---------- 口径计算 ---------- */
+
 function decodeTps(tokens, elapsedMs, ttftMs) {
   if (!Number.isFinite(tokens) || tokens <= 0) return null;
   if (!Number.isFinite(elapsedMs) || !Number.isFinite(ttftMs)) return null;
@@ -68,72 +78,224 @@ function decodeTps(tokens, elapsedMs, ttftMs) {
   return (tokens / decodeMs) * 1000;
 }
 
-function sessionStatus(s) {
-  if (!s) return { label: "—", cls: "apx-mc-badge apx-mc-b-gray" };
-  if (s.isAborting) return { label: "aborting", cls: "apx-mc-badge apx-mc-b-red" };
-  if (s.isPaused) return { label: "paused", cls: "apx-mc-badge apx-mc-b-orange" };
-  if (s.isStreaming) return { label: "streaming", cls: "apx-mc-badge apx-mc-b-green" };
-  return { label: "空闲", cls: "apx-mc-badge apx-mc-b-gray" };
-}
+/** 全部运行中会话的汇总实时状态 */
+function runningTotals(sessions) {
+  const now = Date.now();
+  let decode = 0;
+  let hasDecode = false;
+  let tokens = 0;
+  let longest = null;
+  let streaming = 0;
+  let paused = 0;
+  let aborting = 0;
 
-function sessionAverages(item) {
-  if (!item) return null;
-  const out = item.outputTokens;
-  const total = item.totalDurationMs;
-  const ttftSum = item.runTtftSumMs;
-  const requests = item.runRequestCount || 0;
-  const decodeTotal =
-    Number.isFinite(total) && Number.isFinite(ttftSum) ? total - ttftSum : null;
+  for (const s of sessions) {
+    if (!s) continue;
+    const ttft = s.ttftMs ?? s.runTtftMs;
+    const elapsed = Number.isFinite(s.elapsedMs)
+      ? s.elapsedMs
+      : Number.isFinite(s.startedAt) && s.startedAt > 0
+        ? now - s.startedAt
+        : null;
+    const d = decodeTps(Number.isFinite(s.tokenCount) ? s.tokenCount : 0, elapsed, ttft);
+    if (d != null) {
+      decode += d;
+      hasDecode = true;
+    }
+    if (Number.isFinite(s.tokenCount)) tokens += s.tokenCount;
+    const runElapsed =
+      Number.isFinite(s.startedAt) && s.startedAt > 0 ? now - s.startedAt : elapsed;
+    if (Number.isFinite(runElapsed) && (longest == null || runElapsed > longest)) {
+      longest = runElapsed;
+    }
+    if (s.isAborting) aborting++;
+    else if (s.isPaused) paused++;
+    else if (s.isStreaming) streaming++;
+  }
+
   return {
-    avgDecode: out > 0 && decodeTotal > 0 ? (out / decodeTotal) * 1000 : null,
-    avgAll: out > 0 && total > 0 ? (out / total) * 1000 : null,
-    avgTtft: requests > 0 && Number.isFinite(ttftSum) ? ttftSum / requests : null,
-    requests: requests,
+    count: sessions.length,
+    decode: hasDecode ? decode : null,
+    tokens,
+    longest,
+    streaming,
+    paused,
+    aborting,
   };
 }
 
-function Row(label, value, valueTitle) {
-  return React.createElement(
-    "div",
+/** 全部会话累计字段 → 总计；缺失字段返回 null 而不是 0 */
+function aggregateTotals(items) {
+  let output = 0;
+  let duration = 0;
+  let hasDuration = false;
+  let ttftSum = 0;
+  let hasTtft = false;
+  let requests = 0;
+
+  for (const it of items) {
+    if (!it) continue;
+    if (Number.isFinite(it.outputTokens)) output += it.outputTokens;
+    if (Number.isFinite(it.totalDurationMs) && it.totalDurationMs > 0) {
+      duration += it.totalDurationMs;
+      hasDuration = true;
+    }
+    if (Number.isFinite(it.runTtftSumMs)) {
+      ttftSum += it.runTtftSumMs;
+      hasTtft = true;
+    }
+    if (Number.isFinite(it.runRequestCount)) requests += it.runRequestCount;
+  }
+
+  const decodeTotal = hasDuration && hasTtft ? duration - ttftSum : null;
+  return {
+    output,
+    duration: hasDuration ? duration : null,
+    requests,
+    avgDecode: output > 0 && decodeTotal > 0 ? (output / decodeTotal) * 1000 : null,
+    avgAll: output > 0 && duration > 0 ? (output / duration) * 1000 : null,
+    avgTtft: requests > 0 && hasTtft ? ttftSum / requests : null,
+  };
+}
+
+/* ---------- 状态 ---------- */
+
+function statusMeta(s) {
+  if (!s) return { label: "—", cls: "mc-badge mc-b-gray", title: "无会话" };
+  if (s.isAborting) return { label: "中断中", cls: "mc-badge mc-b-red", title: "aborting" };
+  if (s.isPaused) return { label: "暂停", cls: "mc-badge mc-b-orange", title: "paused" };
+  if (s.isStreaming) return { label: "运行中", cls: "mc-badge mc-b-green", title: "streaming" };
+  return { label: "空闲", cls: "mc-badge mc-b-gray", title: "idle" };
+}
+
+function aggregateStatusMeta(run) {
+  if (!run || run.count === 0)
+    return { label: "空闲", cls: "mc-badge mc-b-gray", title: "没有运行中的会话" };
+  if (run.aborting > 0) return { label: "中断中", cls: "mc-badge mc-b-red", title: "aborting" };
+  if (run.streaming > 0) return { label: "运行中", cls: "mc-badge mc-b-green", title: "streaming" };
+  if (run.paused > 0) return { label: "暂停", cls: "mc-badge mc-b-orange", title: "paused" };
+  return { label: "空闲", cls: "mc-badge mc-b-gray", title: "idle" };
+}
+
+function subAgentStatus(status) {
+  switch (status) {
+    case "running":
+      return { label: "运行中", cls: "mc-badge mc-b-green" };
+    case "completed":
+      return { label: "已完成", cls: "mc-badge mc-b-gray" };
+    case "failed":
+      return { label: "失败", cls: "mc-badge mc-b-red" };
+    case "cancelled":
+      return { label: "已取消", cls: "mc-badge mc-b-orange" };
+    default:
+      return { label: status || "—", cls: "mc-badge mc-b-gray" };
+  }
+}
+
+/** 子代理会话：宿主发布的是以会话 id 为键的对象，旧版本可能是数组 */
+function subAgentList(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object") return Object.values(raw);
+  return [];
+}
+
+/* ---------- 组件 ---------- */
+
+/** 迷你曲线：固定 48 槽位、右侧对齐，宽度跟随容器 */
+function sparkline(values) {
+  const series = Array.isArray(values) ? values.filter((v) => Number.isFinite(v)) : [];
+  const recent = series.slice(-SPARK_SLOTS);
+  const empty = recent.length < 2;
+  const children = [];
+
+  if (!empty) {
+    const max = Math.max(1, ...recent);
+    const offset = SPARK_SLOTS - recent.length;
+    const step = SPARK_SLOTS > 1 ? 100 / (SPARK_SLOTS - 1) : 0;
+    const pts = recent.map((v, i) => {
+      const x = (offset + i) * step;
+      const y = 31 - (v / max) * 28;
+      return [x, y];
+    });
+    const line = pts.map((p) => p[0].toFixed(2) + "," + p[1].toFixed(2)).join(" ");
+    children.push(
+      h("polygon", {
+        key: "area",
+        className: "mc-spark-area",
+        points: "0,32 " + line + " 100,32",
+      }),
+      h("polyline", { key: "line", className: "mc-spark-line", points: line }),
+    );
+  }
+
+  return h(
+    "svg",
     {
-      key: label,
-      style: { display: "flex", justifyContent: "space-between", gap: 12 },
+      className: "mc-spark" + (empty ? " is-empty" : ""),
+      viewBox: "0 0 100 32",
+      preserveAspectRatio: "none",
+      "aria-hidden": "true",
+      focusable: "false",
     },
-    React.createElement(
-      "span",
-      { style: { opacity: 0.65, flexShrink: 0 } },
-      label,
-    ),
-    React.createElement(
-      "span",
-      {
-        style: { fontFamily: "ui-monospace, monospace", textAlign: "right" },
-        title: valueTitle || undefined,
-      },
-      value,
-    ),
+    children,
   );
 }
 
-function SectionTitle(text) {
-  return React.createElement(
+function metaCell(key, label, value, title) {
+  return h(
     "div",
-    {
-      key: text,
-      style: { marginTop: 10, marginBottom: 2, fontWeight: 600, fontSize: 12 },
-    },
-    text,
+    { key, className: "mc-meta-cell", title: title || undefined },
+    h("span", { className: "mc-meta-k" }, label),
+    h("span", { className: "mc-meta-v" }, value),
   );
 }
+
+function metricCell(key, label, value, title, muted) {
+  return h(
+    "div",
+    { key, className: "mc-cell" + (muted ? " is-muted" : ""), title: title || undefined },
+    h("div", { className: "mc-cell-k" }, label),
+    h("div", { className: "mc-cell-v" }, value),
+  );
+}
+
+function sectionBlock(key, title, count, note, children) {
+  return h(
+    "section",
+    { key, className: "mc-section" },
+    h(
+      "div",
+      { className: "mc-section-head" },
+      h("div", { className: "mc-section-title" }, title),
+      count != null ? h("span", { className: "mc-section-count" }, String(count)) : null,
+      note ? h("span", { className: "mc-section-note", title: note }, note) : null,
+    ),
+    children,
+  );
+}
+
+function cardMetric(key, label, value, title) {
+  return h(
+    "div",
+    { key, className: "mc-metric", title: title || undefined },
+    h("div", { className: "mc-metric-k" }, label),
+    h("div", { className: "mc-metric-v" }, value),
+  );
+}
+
+/* ---------- 面板 ---------- */
 
 export default function Panel({ api }) {
   const [rt, setRt] = useState(null);
   const [conv, setConv] = useState(null);
   const [inst, setInst] = useState({});
+  const [spark, setSpark] = useState([]);
   const [, setTick] = useState(0);
   const rtRef = useRef(null);
   const samplesRef = useRef(new Map());
+  const sparkRef = useRef([]);
 
+  // runtime 域实时订阅 + 3s 瞬时 TPS 采样
   useEffect(() => {
     let sub = null;
     let disposed = false;
@@ -182,6 +344,7 @@ export default function Panel({ api }) {
     };
   }, []);
 
+  // conversations 域轮询：全部会话的模型与累计字段
   useEffect(() => {
     let stopped = false;
     let timer = null;
@@ -208,273 +371,361 @@ export default function Panel({ api }) {
     };
   }, []);
 
-  // 每秒触发一次重渲染，让总览表的运行时长实时跳动
+  // 每秒：推进合计速度曲线 + 触发重渲染（运行时长实时跳动）
   useEffect(() => {
-    const timer = setInterval(() => setTick((x) => x + 1), TICK_MS);
+    const timer = setInterval(() => {
+      const r = rtRef.current;
+      const list =
+        r && Array.isArray(r.streamingSessions) ? r.streamingSessions : [];
+      if (list.length === 0) {
+        if (sparkRef.current.length > 0) {
+          sparkRef.current = [];
+          setSpark([]);
+        }
+      } else {
+        const agg = runningTotals(list);
+        if (agg.decode != null) {
+          sparkRef.current.push(agg.decode);
+          if (sparkRef.current.length > SPARK_SLOTS) sparkRef.current.shift();
+          setSpark(sparkRef.current.slice());
+        }
+      }
+      setTick((x) => x + 1);
+    }, TICK_MS);
     return () => clearInterval(timer);
   }, []);
 
   const c = rt && rt.conversation ? rt.conversation : null;
+  const sessions = (rt && rt.streamingSessions) || [];
   const convItems = conv && Array.isArray(conv.items) ? conv.items : [];
-  const convItem =
-    c && conv
-      ? convItems.find((x) => x.conversationId === c.conversationId)
-      : null;
-  const averages = sessionAverages(convItem);
-
-  // conversationId → 会话记录（model / apiProfileName），供总览表模型列查询
   const convById = new Map();
   for (const it of convItems) {
     if (it && it.conversationId) convById.set(it.conversationId, it);
   }
+  const convItem = c ? convById.get(c.conversationId) || null : null;
   const currentModel = convItem && convItem.model ? convItem.model : null;
   const currentProfile =
     convItem && convItem.apiProfileName ? convItem.apiProfileName : null;
 
-  const liveElapsed = c
-    ? Number.isFinite(c.streamElapsedMs)
-      ? c.streamElapsedMs
-      : c.streamStartedAt
-        ? Date.now() - c.streamStartedAt
-        : null
-    : null;
-  const liveTtft = c ? (c.runTtftMs ?? c.streamTtftMs ?? null) : null;
-  const liveTokens = c ? c.streamTokenCount || 0 : 0;
-  const liveDecode = decodeTps(liveTokens, liveElapsed, liveTtft);
-  const liveRaw =
-    liveTokens > 0 && Number.isFinite(liveElapsed) && liveElapsed > 0
-      ? (liveTokens / liveElapsed) * 1000
-      : null;
+  const run = runningTotals(sessions);
+  const totals = aggregateTotals(convItems);
+  const runStatus = aggregateStatusMeta(run);
+  const heroNum = fmtHeroTps(run.decode);
 
-  const sessions = (rt && rt.streamingSessions) || [];
+  let instTotal = null;
+  for (const s of sessions) {
+    const v = inst[s.sessionKey];
+    if (Number.isFinite(v)) instTotal = (instTotal == null ? 0 : instTotal) + v;
+  }
+
   const attentionIds = new Set(
-    (c && Array.isArray(c.attentionRequiredConversationIds)
+    c && Array.isArray(c.attentionRequiredConversationIds)
       ? c.attentionRequiredConversationIds
-      : []),
+      : [],
   );
-  const subAgents = c && Array.isArray(c.subAgentSessions) ? c.subAgentSessions : [];
+  const currentId = c ? c.conversationId : null;
+  const subAgents = subAgentList(c && c.subAgentSessions);
 
-  const el = React.createElement;
+  /* ---------- Hero：全部运行中会话合计 ---------- */
 
-  const overviewRows = sessions.map((s) => {
+  const hero = h(
+    "div",
+    { className: "mc-hero" },
+    h(
+      "div",
+      { className: "mc-hero-top" },
+      h("div", { className: "mc-hero-label" }, "合计输出速度 · 解码口径"),
+      h("span", { className: runStatus.cls, title: runStatus.title }, runStatus.label),
+    ),
+    h(
+      "div",
+      { className: "mc-hero-value" },
+      h("span", { className: "mc-hero-num" }, heroNum == null ? "—" : heroNum),
+      heroNum == null ? null : h("span", { className: "mc-hero-unit" }, "tok/s"),
+    ),
+    h(
+      "div",
+      { className: "mc-hero-sub" },
+      sessions.length > 0
+        ? "全部 " + sessions.length + " 个运行中会话"
+        : "当前没有运行中的会话",
+    ),
+    sparkline(spark),
+    h(
+      "div",
+      { className: "mc-meta" },
+      metaCell("count", "运行中", String(run.count), "全部运行中的会话数（含子代理）"),
+      metaCell("tokens", "本轮 token", fmtTokens(run.tokens), "全部运行中会话本轮已产出的 token 合计"),
+      metaCell(
+        "longest",
+        "最长运行",
+        fmtDuration(run.longest),
+        "运行时间最长的那个会话的本轮时长",
+      ),
+    ),
+  );
+
+  /* ---------- 指标网格：全部会话累计 ---------- */
+
+  const grid = h(
+    "div",
+    { className: "mc-grid" },
+    metricCell(
+      "inst",
+      "瞬时 TPS",
+      fmtTps(instTotal),
+      "全部运行中会话 3 秒滚动窗口速度之和",
+      instTotal == null,
+    ),
+    metricCell(
+      "avgDecode",
+      "总体均值",
+      fmtTps(totals.avgDecode),
+      "全部会话累计输出 / (累计时长 − 累计 TTFT)，分母含工具执行间隙",
+      totals.avgDecode == null,
+    ),
+    metricCell(
+      "avgTtft",
+      "平均 TTFT",
+      fmtMs(totals.avgTtft),
+      "全部会话累计 TTFT / 累计请求数",
+      totals.avgTtft == null,
+    ),
+    metricCell(
+      "output",
+      "累计输出",
+      totals.output > 0 ? fmtTokens(totals.output) + " token" : "—",
+      "全部会话累计输出的 token 数",
+      totals.output <= 0,
+    ),
+  );
+
+  /* ---------- 运行中会话 ---------- */
+
+  const sessionCards = sessions.map((s) => {
+    const sSt = statusMeta(s);
     const ttft = s.ttftMs ?? s.runTtftMs ?? null;
     const elapsed = Number.isFinite(s.elapsedMs) ? s.elapsedMs : null;
     const runElapsed =
-      s.startedAt != null && Number.isFinite(s.startedAt)
+      Number.isFinite(s.startedAt) && s.startedAt > 0
         ? Date.now() - s.startedAt
         : elapsed;
-    const status = sessionStatus(s);
-    const isCurrent = c && s.conversationId === c.conversationId;
+    const isCurrent = currentId && s.conversationId === currentId;
     const needsAttention = attentionIds.has(s.conversationId);
-    const convRec = s.conversationId ? convById.get(s.conversationId) : null;
-    const rowModel = convRec && convRec.model ? convRec.model : null;
-    const rowModelTitle =
-      rowModel && convRec && convRec.apiProfileName
-        ? rowModel + " @ " + convRec.apiProfileName
-        : rowModel || undefined;
-    return el(
-      "tr",
+    const rec = s.conversationId ? convById.get(s.conversationId) : null;
+    const model = rec && rec.model ? rec.model : null;
+    const profile = rec && rec.apiProfileName ? rec.apiProfileName : null;
+
+    return h(
+      "div",
       {
         key: s.sessionKey,
         className:
-          "apx-mc-row" +
-          (needsAttention ? " apx-mc-attention" : "") +
-          (isCurrent ? " apx-mc-current" : ""),
+          "mc-card" +
+          (isCurrent ? " is-current" : "") +
+          (needsAttention ? " is-attention" : ""),
       },
-      el(
-        "td",
-        { className: "apx-mc-cell apx-mc-titlecell" },
-        el(
+      h(
+        "div",
+        { className: "mc-card-head" },
+        h(
           "span",
           {
-            className: "apx-mc-title",
+            className: "mc-card-title",
             title: s.title || s.conversationId || s.sessionKey,
           },
-          s.title || s.conversationId || s.sessionKey,
+          s.title || s.conversationId || "未命名会话",
         ),
-        isCurrent ? el("span", { className: "apx-mc-tag" }, "当前") : null,
-        needsAttention
-          ? el("span", { className: "apx-mc-attention-dot", title: "需要关注" })
-          : null,
+        h(
+          "div",
+          { className: "mc-card-tags" },
+          isCurrent ? h("span", { className: "mc-tag" }, "当前") : null,
+          needsAttention
+            ? h("span", { className: "mc-attention-dot", title: "需要关注" })
+            : null,
+          h("span", { className: sSt.cls, title: sSt.title }, sSt.label),
+        ),
       ),
-      el("td", { className: "apx-mc-cell" }, el("span", { className: status.cls }, status.label)),
-      el(
-        "td",
-        { className: "apx-mc-cell" },
-        rowModel
-          ? el("span", { className: "apx-mc-model", title: rowModelTitle }, rowModel)
-          : el("span", { className: "apx-mc-model apx-mc-model-empty", title: "该会话不在当前项目，模型未知" }, "—"),
+      h(
+        "div",
+        {
+          className: "mc-card-model",
+          title: model
+            ? profile
+              ? model + " @ " + profile
+              : model
+            : "该会话不在当前项目，模型未知",
+        },
+        model || "模型未知",
       ),
-      el("td", { className: "apx-mc-cell apx-mc-num" }, fmtTps(decodeTps(s.tokenCount || 0, elapsed, ttft))),
-      el("td", { className: "apx-mc-cell apx-mc-num" }, fmtTps(inst[s.sessionKey])),
-      el("td", { className: "apx-mc-cell apx-mc-num" }, fmtMs(ttft)),
-      el("td", { className: "apx-mc-cell apx-mc-num" }, fmtTokens(s.tokenCount || 0)),
-      el("td", { className: "apx-mc-cell apx-mc-num" }, fmtDuration(runElapsed)),
+      h(
+        "div",
+        { className: "mc-card-speed" },
+        h(
+          "div",
+          { className: "mc-speed-block" },
+          h("div", { className: "mc-speed-k" }, "解码 TPS"),
+          h(
+            "div",
+            { className: "mc-speed-v", title: "解码 TPS = token / (时长 − TTFT)" },
+            fmtTps(decodeTps(s.tokenCount || 0, elapsed, ttft)),
+          ),
+        ),
+        h(
+          "div",
+          { className: "mc-speed-block" },
+          h("div", { className: "mc-speed-k" }, "瞬时 TPS"),
+          h(
+            "div",
+            { className: "mc-speed-v", title: "3 秒滚动窗口内的输出速度" },
+            fmtTps(inst[s.sessionKey]),
+          ),
+        ),
+      ),
+      h(
+        "div",
+        { className: "mc-card-metrics" },
+        cardMetric("ttft", "TTFT", fmtMs(ttft), "本轮首个 token 延迟"),
+        cardMetric("tokens", "token", fmtTokens(s.tokenCount || 0), "本轮已产出 token"),
+        cardMetric("elapsed", "时长", fmtDuration(runElapsed), "本轮 run 的实时时长"),
+      ),
     );
   });
 
-  const overviewTable =
+  const sessionSection = sectionBlock(
+    "sessions",
+    "运行中会话",
+    sessions.length,
+    null,
     sessions.length === 0
-      ? el("div", { className: "apx-mc-empty" }, "当前没有运行中的会话")
-      : el(
-          "div",
-          { className: "apx-mc-tablewrap" },
-          el(
-            "table",
-            { className: "apx-mc-table" },
-            el(
-              "thead",
-              null,
-              el(
-                "tr",
-                null,
-                el("th", { className: "apx-mc-head" }, "会话"),
-                el("th", { className: "apx-mc-head" }, "状态"),
-                el("th", { className: "apx-mc-head" }, "模型"),
-                el("th", { className: "apx-mc-head" }, "解码 TPS"),
-                el("th", { className: "apx-mc-head" }, "瞬时 TPS"),
-                el("th", { className: "apx-mc-head" }, "TTFT"),
-                el("th", { className: "apx-mc-head" }, "token"),
-                el("th", { className: "apx-mc-head" }, "时长"),
-              ),
-            ),
-            el("tbody", null, overviewRows),
-          ),
-        );
+      ? h("div", { className: "mc-empty" }, "当前没有运行中的会话")
+      : h("div", { className: "mc-cards" }, sessionCards),
+  );
 
-  return el(
-    "div",
-    {
-      className: "apx-mc-root",
-    },
-    el(
+  /* ---------- 子代理 ---------- */
+
+  const subSection =
+    subAgents.length > 0
+      ? sectionBlock(
+          "subAgents",
+          "子代理",
+          subAgents.length,
+          null,
+          h(
+            "div",
+            { className: "mc-cards" },
+            subAgents.map((sa, i) => {
+              const saSt = subAgentStatus(sa && sa.status);
+              const name = (sa && (sa.agentName || sa.agentId)) || "子代理";
+              const desc = (sa && sa.summary) || "";
+              return h(
+                "div",
+                {
+                  key: (sa && (sa.conversationId || sa.agentId)) || "sub-" + i,
+                  className: "mc-card",
+                },
+                h(
+                  "div",
+                  { className: "mc-card-head" },
+                  h("span", { className: "mc-card-title", title: name }, name),
+                  h("span", { className: saSt.cls }, saSt.label),
+                ),
+                desc ? h("div", { className: "mc-sub-desc", title: desc }, desc) : null,
+              );
+            }),
+          ),
+        )
+      : null;
+
+  /* ---------- 说明 ---------- */
+
+  const totalsLine =
+    totals.requests > 0
+      ? "全部会话累计 " +
+        totals.requests +
+        " 次请求 · 累计输出 " +
+        fmtTokens(totals.output) +
+        " token"
+      : null;
+
+  const convUnavailable = !conv && sessions.length > 0;
+
+  const footnote = h(
+    "details",
+    { className: "mc-details" },
+    h("summary", null, "口径说明"),
+    h(
       "div",
-      { style: { display: "flex", alignItems: "center", gap: 6, fontWeight: 600 } },
-      Icons.Activity ? el(Icons.Activity, { size: 14 }) : null,
-      "任务中心",
+      { className: "mc-details-body" },
+      h(
+        "div",
+        null,
+        h("b", null, "合计速度"),
+        " = 全部运行中会话解码 TPS 之和，剔除各自的首 token 等待；首 token 未到的会话不计入。",
+      ),
+      h("div", null, h("b", null, "解码 TPS"), " = token / (时长 − TTFT)，行业基准口径。"),
+      h("div", null, h("b", null, "瞬时 TPS"), " = 3 秒滚动窗口内的 Δtoken / Δt，各会话求和。"),
+      h(
+        "div",
+        null,
+        h("b", null, "总体均值"),
+        " = 全部会话累计输出 / (累计时长 − 累计 TTFT)。分母含 run 内工具执行等非流式间隙，穿插工具调用的会话该值偏低，实际生成速度以解码口径为准。",
+      ),
+      h(
+        "div",
+        null,
+        "部分会话的累计时长由应用侧未累计（totalDurationMs 为 0），这些会话不计入总体均值，仅计入平均 TTFT 与累计输出。",
+      ),
+      h(
+        "div",
+        null,
+        "模型取自 conversations 域，按激活项目拉取；其他项目的运行中会话显示「模型未知」。",
+      ),
+    ),
+  );
+
+  return h(
+    "div",
+    { className: "mc-root" },
+    h(
+      "div",
+      { className: "mc-head" },
+      h(
+        "div",
+        { className: "mc-head-title" },
+        Icons.Activity ? h(Icons.Activity, { size: 15 }) : null,
+        "任务中心",
+      ),
       currentModel
-        ? el(
+        ? h(
             "span",
             {
-              className: "apx-mc-model apx-mc-model-head",
+              className: "mc-model-chip",
               title: currentProfile ? currentModel + " @ " + currentProfile : currentModel,
             },
             currentModel,
           )
         : null,
-      c && c.isStreaming
-        ? el(
-            "span",
-            {
-              style: {
-                fontSize: 10,
-                color: "#22c55e",
-                border: "1px solid currentColor",
-                borderRadius: 8,
-                padding: "0 6px",
-              },
-            },
-            "streaming",
-          )
-        : null,
+      h(
+        "span",
+        { className: "mc-live" + (run.streaming > 0 ? " is-hot" : "") },
+        h("span", { className: "mc-live-dot" }),
+        sessions.length > 0 ? sessions.length + " 个运行中" : "空闲",
+      ),
     ),
-
-    SectionTitle("运行中会话"),
-    overviewTable,
-    sessions.length > 0
-      ? el(
+    hero,
+    grid,
+    totalsLine || convUnavailable
+      ? h(
           "div",
-          { className: "apx-mc-hint" },
-          "解码 TPS = token / (时长 − TTFT)；瞬时 TPS 为 3s 滚动窗口；时长实时跳动。可横向滚动查看全部列。",
+          { className: "mc-hint" + (convUnavailable ? " is-warn" : "") },
+          convUnavailable
+            ? "conversations 域不可用：模型与累计数据暂不可读"
+            : totalsLine,
         )
       : null,
-
-    subAgents.length > 0
-      ? [
-          SectionTitle("子代理"),
-          ...subAgents.map((sa, i) =>
-            el(
-              "div",
-              {
-                key: (sa && (sa.sessionKey || sa.subAgentId || sa.conversationId)) || "sub-" + i,
-                className: "apx-mc-subrow",
-              },
-              el(
-                "span",
-                { className: "apx-mc-title", title: sa.title || "子代理" },
-                sa.title || "子代理",
-              ),
-              el("span", { className: sessionStatus(sa).cls }, sessionStatus(sa).label),
-            ),
-          ),
-        ]
-      : null,
-
-    SectionTitle("当前会话（实时）"),
-    c
-      ? [
-          Row("会话", c.title || c.conversationId),
-          Row(
-            "模型",
-            currentModel || "未知（conversations 域未返回）",
-            currentProfile ? (currentModel || "") + " @ " + currentProfile : undefined,
-          ),
-          Row(
-            "TTFT（首 token 延迟）",
-            c.isStreaming && !Number.isFinite(liveTtft)
-              ? "等待首 token…"
-              : fmtMs(liveTtft),
-          ),
-          Row("实时 TPS（解码口径）", fmtTps(liveDecode)),
-          Row(
-            "瞬时 TPS（3s 窗口）",
-            c.sessionKey && Number.isFinite(inst[c.sessionKey])
-              ? fmtTps(inst[c.sessionKey])
-              : "—",
-          ),
-          Row("原始口径（含 TTFT，与应用一致）", fmtTps(liveRaw)),
-          Row("已产出 token", String(liveTokens)),
-        ]
-      : "未聚焦任何会话",
-
-    SectionTitle("会话累计均值（conversations 域）"),
-    averages &&
-    (averages.avgDecode != null || averages.avgAll != null || averages.avgTtft != null)
-      ? [
-          Row(
-            "平均 TPS（解码口径）",
-            averages.avgDecode != null
-              ? fmtTps(averages.avgDecode)
-              : "需 totalDurationMs 累计",
-          ),
-          Row(
-            "平均 TPS（含 TTFT 与工具耗时）",
-            averages.avgAll != null
-              ? fmtTps(averages.avgAll)
-              : "需 totalDurationMs 累计",
-          ),
-          Row(
-            "平均 TTFT",
-            averages.avgTtft != null ? fmtMs(averages.avgTtft) : "数据源未提供",
-          ),
-          Row("请求数", String(averages.requests)),
-        ]
-      : averages && averages.requests > 0
-        ? "累计 TPS 不可算：域数据缺累计输出/时长（outputTokens=" +
-            (convItem && Number.isFinite(convItem.outputTokens) ? convItem.outputTokens : "无") +
-            "，totalDurationMs=" +
-            (convItem && Number.isFinite(convItem.totalDurationMs) ? convItem.totalDurationMs : "无") +
-            "，runTtftSumMs=" +
-            (convItem && Number.isFinite(convItem.runTtftSumMs) ? convItem.runTtftSumMs : "无") +
-            "；请求数 " +
-            averages.requests +
-            "）"
-        : "累计数据不足：完成至少一轮对话后再看（分母需要 conversations 域的累计输出、时长与请求数）",
-
-    el(
-      "div",
-      { className: "apx-mc-footnote" },
-      "口径：解码 TPS = token / (时长 − TTFT)，行业基准惯例；会话均值分母来自应用累计时长，包含 run 内工具执行等非流式间隙，穿插工具调用的会话该均值偏低，实际生成速度以实时解码口径为准。部分会话 conversations 域的 totalDurationMs 为 0（应用侧未累计会话总时长），此时 TPS 均值不可算，仅平均 TTFT 可用。",
-    ),
+    sessionSection,
+    subSection,
+    footnote,
   );
 }
