@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TokenRing增强
 // @namespace    kedou
-// @version      2.4.0
+// @version      2.4.9
 // @description  增强输入区上下文圆环：把宿主原生的用量明细与上下文分解合并进同一块浮层；消息量与系统基线取自真实请求 token。
 // @author       kedou
 // @icon         lucide:PieChart
@@ -39,6 +39,7 @@
   "use strict";
 
   var HEAVY_MS = 15000; /* 消息 / MCP / 技能 / 提示词的刷新间隔 */
+  var OPEN_DELAY = 100; /* 指针停在圆环上超过这么久才展开，快速路过不弹面板 */
   var COLLAPSE_KEY = "scb.collapsed";
 
   /* ===================== 纯工具 ===================== */
@@ -125,8 +126,6 @@
     personalization: null,
     systemPrompts: null,
     usage: null,
-    nativeRows: [],
-    nativeSig: "",
     convId: "",
     projectId: "",
     locale: "zh-CN",
@@ -141,8 +140,10 @@
   var mountedPop = null;
   var mountedRing = null;
   var hideTimer = null;
-  var lastTooltipHeight = -1;
-  var lastPosCheck = 0;
+  var openTimer = null;
+  var closing = false;
+  var closeTimer = null;
+  var pendingRender = 0;
   var observer = null;
   var rafId = 0;
   var destroyed = false;
@@ -289,9 +290,8 @@
       state.skills = arr[2];
       state.personalization = arr[3];
       state.systemPrompts = arr[4];
-      state.dirty = true;
+      markDirty();
       fetchFirstRequest();
-      if (isPopOpen()) render();
     });
   }
 
@@ -307,8 +307,7 @@
     safeGet("usage", { since: fmtDbTime(since), until: fmtDbTime(until), limit: 100 }).then(function (u) {
       if (destroyed) return;
       state.usage = u;
-      state.dirty = true;
-      if (isPopOpen()) render();
+      markDirty();
     });
   }
 
@@ -586,9 +585,63 @@
     host.appendChild(line);
   }
 
-  /** 把宿主原生 tooltip 的行合并进面板（两列），视觉上只有一块浮层 */
-  function renderNativeRows(host) {
-    var rows = state.nativeRows;
+  /* ---------- 原生用量行：与宿主 TokenUsageRing 同口径，直接由 runtime 计算 ---------- */
+
+  /** 宿主 formatTokens 口径：>=1000 用 K / M / B / T / Q / Qi，小数位数随量级取 0~2 位 */
+  function fmtHostTokens(n) {
+    var v = num(n);
+    if (v < 1000) return String(Math.round(v));
+    var units = [
+      [1e18, "Qi"],
+      [1e15, "Q"],
+      [1e12, "T"],
+      [1e9, "B"],
+      [1e6, "M"],
+      [1e3, "K"],
+    ];
+    for (var i = 0; i < units.length; i++) {
+      if (v >= units[i][0]) {
+        var scaled = v / units[i][0];
+        var d = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+        return scaled.toFixed(d) + units[i][1];
+      }
+    }
+    return String(Math.round(v));
+  }
+
+  /** 与宿主一致的一位小数百分比 */
+  function fmtPct1(v) {
+    if (!isFinite(v)) return "0%";
+    var r = Math.round(v * 10) / 10;
+    return (r % 1 === 0 ? String(r) : r.toFixed(1)) + "%";
+  }
+
+  /**
+   * 原生用量行全部由 runtime 计算：取值、出现条件、格式化与宿主 TokenUsageRing 一致。
+   * 不读宿主 tooltip 的 DOM —— 那里要等 React 渲染，晚到会让面板在可见之后长高一块。
+   */
+  function buildNativeRows(data) {
+    var s = data && data.snap;
+    if (!s) return [];
+    var rows = [];
+    rows.push({ label: "输入", value: fmtHostTokens(s.nonCachedInput), color: "#3b82f6" });
+    rows.push({ label: "输出", value: fmtHostTokens(s.output), color: "#22c55e" });
+    if (s.cacheWrite > 0) {
+      rows.push({ label: "缓存写入", value: fmtHostTokens(s.cacheWrite), color: "#f59e0b" });
+    }
+    if (s.cacheRead > 0) {
+      rows.push({ label: "缓存命中", value: fmtHostTokens(s.cacheRead), color: "#a855f7" });
+    }
+    rows.push({ label: "合计", value: fmtHostTokens(s.total), color: "" });
+    if (s.cacheRead > 0 && s.input > 0) {
+      rows.push({ label: "缓存命中率", value: fmtPct1((s.cacheRead / s.input) * 100), color: "" });
+    }
+    if (data.max > 0) rows.push({ label: "上下文", value: fmtHostTokens(data.max), color: "" });
+    return rows;
+  }
+
+  /** 两列排布原生行 */
+  function renderNativeRows(host, rows) {
     if (!rows || !rows.length) return;
     var box = el("div", "scb-native");
     for (var i = 0; i < rows.length; i += 2) {
@@ -596,7 +649,7 @@
       for (var j = i; j < Math.min(i + 2, rows.length); j++) {
         var cell = el("span", "scb-native-cell");
         var dot = el("span", "scb-native-dot");
-        if (rows[j].color && rows[j].color !== "rgba(0, 0, 0, 0)") dot.style.background = rows[j].color;
+        if (rows[j].color) dot.style.background = rows[j].color;
         else dot.style.visibility = "hidden";
         cell.appendChild(dot);
         cell.appendChild(el("span", "scb-native-label", rows[j].label));
@@ -689,7 +742,7 @@
       });
     }
 
-    renderNativeRows(pop);
+    renderNativeRows(pop, buildNativeRows(data));
 
     var note;
     if (data.mode === "real") {
@@ -703,6 +756,20 @@
     if (state.denied.messages) {
       pop.appendChild(el("div", "scb-warn", "消息域未授权，消息分类按 0 计（其余分类不受影响）。"));
     }
+  }
+
+  /**
+   * 数据变了：面板关着就合并成一次重绘（display:none 下重建不上屏）；
+   * 面板开着只记脏标记，收起后再应用，打开期间内容与高度都不动。
+   */
+  function markDirty() {
+    state.dirty = true;
+    if (pendingRender || closing || isPopOpen() || !mountedPop) return;
+    pendingRender = setTimeout(function () {
+      pendingRender = 0;
+      if (destroyed || !mountedPop || closing || isPopOpen()) return;
+      render(true);
+    }, 50);
   }
 
   /* ===================== 挂载 ===================== */
@@ -730,16 +797,23 @@
       mountedPop = null;
       return;
     }
-    if (mountedRing !== ring) {
+    if (mountedPop && mountedPop.parentNode === ring) {
       mountedRing = ring;
-      mountedPop = null;
+      return;
     }
-    if (mountedPop && mountedPop.parentNode === ring) return;
+    /* 宿主重建圆环节点（流式开始 / 结束会切 placeholder）：把打开状态迁到新面板，避免闪一下 */
+    var reopen = isPopOpen();
     var existing = ring.querySelector(".scb-pop");
     if (existing && existing !== mountedPop) existing.parentNode.removeChild(existing);
+    mountedRing = ring;
     mountedPop = buildPop();
     ring.appendChild(mountedPop);
     render(true);
+    if (reopen) {
+      mountedPop.classList.add("is-open");
+      ring.classList.add("scb-open");
+      positionPop();
+    }
   }
 
   function showPop() {
@@ -748,84 +822,47 @@
       hideTimer = null;
     }
     if (!mountedPop) return;
-    if (state.dirty || !mountedPop.querySelector(".scb-main")) render(true);
+    if (pendingRender) {
+      clearTimeout(pendingRender);
+      pendingRender = 0;
+    }
+    /* 面板此刻不可见（hidePop 摘掉了 is-open），在这里重建内容不会上屏；打开后内容冻结 */
+    var empty = !mountedPop.querySelector(".scb-main");
+    var resuming = closing; /* 淡出中又回来：沿用当前内容，避免中途换内容导致高度变化 */
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+    closing = false;
+    if (!isPopOpen() && (empty || (!resuming && state.dirty))) render(true);
     mountedPop.classList.add("is-open");
-    lastTooltipHeight = -1;
+    /* 宿主 tooltip 与本浮层同锚点，打开的同帧隐藏它，否则两块浮层叠在一起 */
+    if (mountedRing) mountedRing.classList.add("scb-open");
     positionPop();
-    refreshNative();
-    /* 宿主原生 tooltip 由 React 在 hover 后才渲染：出现后把它的行合并进来 */
-    setTimeout(function () {
-      if (!isPopOpen()) return;
-      refreshNative();
-      positionPop();
-    }, 60);
-    setTimeout(function () {
-      if (!isPopOpen()) return;
-      refreshNative();
-      positionPop();
-    }, 220);
     refreshHeavy(false);
   }
 
-  function hostTooltip() {
-    return mountedRing ? mountedRing.querySelector(".token-usage-tooltip") : null;
-  }
-
-  /** 读取宿主原生 tooltip 的行（label / value / 圆点颜色），供面板内合并展示 */
-  function readHostRows() {
-    var tt = hostTooltip();
-    if (!tt) return [];
-    var rows = tt.querySelectorAll(".token-usage-tooltip-row");
-    var out = [];
-    for (var i = 0; i < rows.length; i++) {
-      var row = rows[i];
-      var label = row.querySelector(".token-usage-label");
-      var value = row.querySelector(".token-usage-value");
-      var dot = row.querySelector(".token-usage-dot");
-      if (!label || !value) continue;
-      out.push({
-        label: (label.textContent || "").trim(),
-        value: (value.textContent || "").trim(),
-        color: dot ? getComputedStyle(dot).backgroundColor : "",
-      });
-    }
-    return out;
-  }
-
-  /** 宿主 tooltip 是 hover 后才渲染的，读取到新内容时重绘一次 */
-  function refreshNative() {
-    var rows = readHostRows();
-    var sig = rows
-      .map(function (r) {
-        return r.label + "=" + r.value;
-      })
-      .join("|");
-    if (sig === state.nativeSig) return;
-    state.nativeSig = sig;
-    state.nativeRows = rows;
-    /* 只有真的把原生行读进面板了，才隐藏宿主 tooltip；读不到就让它自己显示，信息不丢 */
-    if (mountedRing) {
-      if (rows.length) mountedRing.setAttribute("data-scb-native", "1");
-      else mountedRing.removeAttribute("data-scb-native");
-    }
-    if (isPopOpen()) render(true);
+  /** 桥接方向：指针从圆环移到浮层时始终落在浮层（含伪元素）上，不经过 8px 死区 */
+  function setBridge(side) {
+    if (!mountedPop) return;
+    mountedPop.classList.remove("scb-bridge-bottom", "scb-bridge-top", "scb-bridge-right");
+    mountedPop.classList.add("scb-bridge-" + side);
   }
 
   /**
-   * 增强而非覆盖：宿主原生 tooltip（input / output / 缓存 / 合计 / 上下文）保持原样，
-   * 本浮层叠在它上方；上方空间不足时改贴圆环左侧。
+   * 浮层固定在圆环上方 8px（与宿主 tooltip 同一个锚点，宿主 tooltip 已被 scb-open 隐藏），
+   * 位置只跟视口有关、不跟宿主 tooltip 高度联动，hover / 移出时不会上下跳。
+   * 上方空间不足时改贴圆环左侧，左侧也放不下再放圆环下方。
    */
   function positionPop() {
     if (!mountedPop || !mountedRing) return;
     var vw = document.documentElement.clientWidth || window.innerWidth || 0;
-    var tt = hostTooltip();
-    var ttH = tt ? tt.offsetHeight || 0 : 0;
-    lastTooltipHeight = ttH;
 
     mountedPop.style.top = "auto";
     mountedPop.style.left = "auto";
-    mountedPop.style.bottom = "calc(100% + " + (8 + (ttH > 0 ? ttH + 8 : 0)) + "px)";
+    mountedPop.style.bottom = "calc(100% + 8px)";
     mountedPop.style.right = "-4px";
+    setBridge("bottom");
 
     var rect = mountedRing.getBoundingClientRect();
     if (vw) {
@@ -845,6 +882,7 @@
     if (box.top < 8) {
       mountedPop.style.bottom = "0px";
       mountedPop.style.right = "calc(100% + 10px)";
+      setBridge("right");
       box = mountedPop.getBoundingClientRect();
     }
 
@@ -853,6 +891,7 @@
       mountedPop.style.bottom = "auto";
       mountedPop.style.right = "auto";
       mountedPop.style.top = "calc(100% + 8px)";
+      setBridge("top");
       var popW2 = mountedPop.offsetWidth || 258;
       var left = rect.right + 4 - popW2;
       var minLeft = 8;
@@ -863,23 +902,39 @@
     }
   }
 
-  /** 宿主 tooltip 出现 / 消失时高度变化，重新让位（宿主 hover 才渲染，靠这个兜住时序） */
-  function repositionIfNeeded() {
-    if (!isPopOpen() || !mountedPop) return;
-    var now = Date.now();
-    if (now - lastPosCheck < 100) return;
-    lastPosCheck = now;
-    var tt = hostTooltip();
-    var h = tt ? tt.offsetHeight || 0 : 0;
-    if (h === lastTooltipHeight) return;
-    lastTooltipHeight = h;
-    var gap = 8 + (h > 0 ? h + 8 : 0);
-    mountedPop.style.bottom = "calc(100% + " + gap + "px)";
+  /**
+   * 解除对宿主 tooltip 的压制（scb-open）。宿主卸载 tooltip 靠 React 提交
+   * （mouseleave → setShowTooltip(false)），流式输出期间提交可能比收起晚
+   * 数百毫秒；固定延时解除会在它真正消失前放它闪现一下（issue #9）。
+   * 所以轮询等它从 DOM 消失再解除；上限兜底约 1.1s，宿主 state 卡死时
+   * （宿主已知问题：tooltip 在未悬停时莫名弹出）不至于永久压住原生行为。
+   */
+  function releaseHostTooltip(attempt) {
+    if (destroyed || !mountedRing) return;
+    if (isPopOpen() || openTimer) return; /* 面板开着 / 待展开：压制本就该在，由 showPop / 下一次收起接管 */
+    if (attempt < 14 && mountedRing.querySelector(".token-usage-tooltip")) {
+      closeTimer = setTimeout(function () {
+        closeTimer = null;
+        releaseHostTooltip(attempt + 1);
+      }, 80);
+      return;
+    }
+    mountedRing.classList.remove("scb-open");
   }
 
   function hidePop() {
     if (!mountedPop) return;
     mountedPop.classList.remove("is-open");
+    /* 淡出期间冻结内容：重绘要等完全不可见之后，否则面板会在消失过程中改变高度 */
+    closing = true;
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = setTimeout(function () {
+      closeTimer = null;
+      closing = false;
+      /* 压制（scb-open）延到面板完全淡出、且宿主 tooltip 真的从 DOM 消失之后再解除 */
+      releaseHostTooltip(0);
+      if (state.dirty) markDirty();
+    }, 130);
   }
 
   function scheduleHide() {
@@ -887,30 +942,46 @@
     hideTimer = setTimeout(function () {
       hideTimer = null;
       hidePop();
-    }, 180);
+    }, 90);
   }
 
   function isRingTarget(node) {
     return !!(node && node.closest && node.closest('[data-snow-anchor="chat.input"] .token-usage-ring-wrapper'));
   }
 
+  /** 指针路过圆环不算悬停：停留超过 OPEN_DELAY 才展开，避免快速穿过时面板一闪 */
   function onPointerOver(e) {
-    if (isRingTarget(e.target)) showPop();
+    if (!isRingTarget(e.target)) return;
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
+    /* 指针一进入就压住宿主原生浮层：否则它先显示、100ms 后才被面板替换，看起来就是高度跳一下 */
+    if (mountedRing && !isPopOpen()) mountedRing.classList.add("scb-open");
+    if (isPopOpen() || openTimer) return;
+    openTimer = setTimeout(function () {
+      openTimer = null;
+      showPop();
+    }, OPEN_DELAY);
   }
 
   function onPointerOut(e) {
     if (!isRingTarget(e.target)) return;
     var to = e.relatedTarget;
     if (to && to.nodeType === 1 && mountedRing && mountedRing.contains(to)) return;
+    if (openTimer) {
+      clearTimeout(openTimer);
+      openTimer = null;
+    }
     scheduleHide();
   }
 
   function scheduleEnsure() {
     if (rafId) return;
-    rafId = requestAnimationFrame(function () {
+    rafId = setTimeout(function () {
       rafId = 0;
       ensureMounted();
-    });
+    }, 0);
   }
 
   /* ===================== 订阅 ===================== */
@@ -920,8 +991,7 @@
     var rt = next.domains.runtime;
     if (!rt) return;
     state.runtime = rt;
-    state.dirty = true;
-    if (isPopOpen()) render();
+    markDirty();
   }
 
   function subscribeRuntime() {
@@ -941,8 +1011,7 @@
         var rt = r && r.domains && r.domains.runtime;
         if (rt && !state.runtime) {
           state.runtime = rt;
-          state.dirty = true;
-          if (isPopOpen()) render();
+          markDirty();
         }
       })
       .catch(function () { /* 忽略 */ });
@@ -963,11 +1032,19 @@
 
   function injectStyle() {
     var css = [
-      /* 原生行已并入面板时才隐藏宿主 tooltip（避免两块浮层；宿主结构变动时自动退回） */
-      '[data-snow-anchor="chat.input"] .token-usage-ring-wrapper[data-scb-native="1"] .token-usage-tooltip{display:none !important;}',
-      ".scb-pop{position:absolute;right:-4px;bottom:calc(100% + 8px);z-index:130;display:none;width:268px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:10px 12px 11px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);box-shadow:var(--island-shadow);font-size:11px;line-height:1.5;color:var(--text-secondary);text-align:left;cursor:default;}",
-      ".scb-pop.is-open{display:block;animation:scb-in .14s ease-out;}",
-      "@keyframes scb-in{from{opacity:0;transform:translateY(3px);}to{opacity:1;transform:translateY(0);}}",
+      /* 面板打开期间隐藏宿主 tooltip：两者同锚点，合并成一块浮层。
+       * 用 visibility + opacity 而不是 display:none：display 切换会让宿主的
+       * 进入动画在解除压制时从头重播，残留帧里闪得更明显；tooltip 本身
+       * absolute + pointer-events:none，visibility 压制不产生任何布局差异。 */
+      '[data-snow-anchor="chat.input"] .token-usage-ring-wrapper.scb-open .token-usage-tooltip{visibility:hidden !important;opacity:0 !important;animation:none !important;}',
+      ".scb-pop{position:absolute;right:-4px;bottom:calc(100% + 8px);z-index:130;display:block;visibility:hidden;opacity:0;pointer-events:none;width:268px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:10px 12px 11px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);box-shadow:var(--island-shadow);font-size:11px;line-height:1.5;color:var(--text-secondary);text-align:left;cursor:default;transition:opacity .12s ease,visibility 0s linear .12s;}",
+      /* 只切不透明度与可见性：面板始终是 absolute，显隐不产生任何布局变化、无位移动画 */
+      ".scb-pop.is-open{visibility:visible;opacity:1;pointer-events:auto;transition:opacity .12s ease,visibility 0s linear 0s;}",
+      /* 透明桥：覆盖浮层与圆环之间的空隙，避免指针经过时触发移出 */
+      ".scb-pop::after{content:\"\";position:absolute;}",
+      ".scb-pop.scb-bridge-bottom::after{left:0;right:0;bottom:-9px;height:9px;}",
+      ".scb-pop.scb-bridge-top::after{left:0;right:0;top:-9px;height:9px;}",
+      ".scb-pop.scb-bridge-right::after{top:0;bottom:0;right:-11px;width:11px;}",
       ".scb-head{display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;}",
       ".scb-title{font-size:11px;font-weight:600;color:var(--text-primary);}",
       ".scb-chev{width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--text-tertiary);transition:transform .15s ease;}",
@@ -1027,7 +1104,6 @@
         return;
       }
       if (!mountedPop || mountedPop.parentNode !== ring) scheduleEnsure();
-      else repositionIfNeeded();
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
@@ -1043,8 +1119,9 @@
       if (window.snow && typeof snow.on === "function") {
         snow.on("conversation-change", function () {
           syncContext();
-          state.dirty = true;
-          if (isPopOpen()) render();
+          markDirty();
+          /* 会话切了：面板里是上一个会话的分解，直接收掉，下次 hover 再按新会话重绘 */
+          hidePop();
           scheduleEnsure();
           refreshHeavy(true);
         });
@@ -1074,8 +1151,12 @@
         document.removeEventListener("mouseout", onPointerOut, true);
         if (observer) observer.disconnect();
         observer = null;
-        if (rafId) cancelAnimationFrame(rafId);
+        if (rafId) clearTimeout(rafId);
+        if (pendingRender) clearTimeout(pendingRender);
+        pendingRender = 0;
         if (hideTimer) clearTimeout(hideTimer);
+        if (openTimer) clearTimeout(openTimer);
+        if (closeTimer) clearTimeout(closeTimer);
         if (heavyTimer) clearInterval(heavyTimer);
         for (var i = 0; i < subs.length; i++) {
           try {
@@ -1085,7 +1166,7 @@
           }
         }
         subs = [];
-        if (mountedRing) mountedRing.removeAttribute("data-scb-native");
+        if (mountedRing) mountedRing.classList.remove("scb-open");
         if (mountedPop && mountedPop.parentNode) mountedPop.parentNode.removeChild(mountedPop);
         mountedPop = null;
         mountedRing = null;

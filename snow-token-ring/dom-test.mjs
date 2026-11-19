@@ -7,6 +7,10 @@
  *   - 分类行来自估算：系统提示词 / 技能 / MCP 工具 / 消息 / 未归类 / 可用空间；
  *   - 不再包含任何金额、单价入口；
  *   - 折叠可切换；
+ *   - 悬浮期间浮层锚点不随宿主 tooltip 显隐上下跳动；
+ *   - 悬浮期间宿主推送新用量时面板内容冻结为打开时快照；
+ *   - 逐帧采样高度恒定，指针从圆环移向浮层不被收起；
+ *   - 宿主重建圆环节点后面板保持打开、高度不变；
  *   - 180 / 280 / 380 / 480 容器宽度下不越出视口、无横向溢出。
  *
  * 运行：node snow-token-ring/dom-test.mjs
@@ -35,8 +39,8 @@ const MOCK = {
           tokenUsage: {
             inputTokens: 10000,
             outputTokens: 2000,
-            cacheCreationInputTokens: 0,
-            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 1000,
+            cacheReadInputTokens: 4000,
           },
         },
         chatInput: { conversationId: "conv-1", inputText: "", maxContextTokens: 200000 },
@@ -130,7 +134,7 @@ const PROBE = `
       : null;
     out.hasMoney = pop ? /[¥$]/.test(pop.textContent) : null;
     out.hasPriceUi = !!(pop && (pop.querySelector('.scb-link') || pop.querySelector('.scb-cost') || pop.querySelector('.scb-editor')));
-    out.hostTooltipDisplay = tt ? getComputedStyle(tt).display : null;
+    out.hostTooltipDisplay = tt ? getComputedStyle(tt).visibility : null;
     out.hostTooltipText = tt ? tt.textContent.replace(/\\s+/g, "") : null;
     if (tt) {
       var tr = tt.getBoundingClientRect();
@@ -144,7 +148,15 @@ const PROBE = `
       if (out.ttRect) out.overlapsHostTooltip = rect.bottom > out.ttRect.top + 1;
     }
     out.docOverflowX = document.documentElement.scrollWidth > window.innerWidth + 1;
+    out.docOverflowY = document.documentElement.scrollHeight > document.documentElement.clientHeight + 1;
     out.viewport = window.innerWidth;
+    out.anchors = anchors;
+    out.frames = frames;
+    out.moveKeptOpen = moveKeptOpen;
+    out.intentPending = intentPending;
+    out.hostHiddenEarly = hostHiddenEarly;
+    out.rebuilt = rebuilt;
+    out.bridge = readBridge();
 
     /* 折叠：点标题后明细行应消失，再点恢复 */
     var head = pop && pop.querySelector('.scb-head');
@@ -157,15 +169,213 @@ const PROBE = `
     }
 
     document.getElementById('result').textContent = JSON.stringify(out);
+    setTimeout(runCloseTest, 40);
   }
 
-  /* 模拟宿主 hover 才渲染 tooltip 的时序：先不存在 -> hover -> 出现 */
+  /* 收起 / 淡出期间面板仍可见：此时重绘会让面板在消失过程中改变高度 */
+  function runCloseTest() {
+    var out = JSON.parse(document.getElementById('result').textContent);
+    var t0 = Date.now();
+    var cb = window.__subs && window.__subs.runtime;
+    if (cb) {
+      /* 把可用空间压到 0，重绘会少一行 —— 用来暴露"淡出中重绘" */
+      var rt = JSON.parse(JSON.stringify(window.__meta.runtime.domains.runtime));
+      rt.conversation.tokenUsage.inputTokens = 10000;
+      rt.conversation.tokenUsage.outputTokens = 2000;
+      if (rt.chatInput) rt.chatInput.maxContextTokens = 11000;
+      cb({ domains: { runtime: rt } });
+    }
+    var fr = [];
+    var sampling2 = true;
+    (function sample() {
+      var n = document.querySelector('[data-snow-anchor="chat.input"] .scb-pop');
+      /* 模拟宿主 React 的慢提交：tooltip DOM 在 mouseout 后 400ms 才从 DOM 卸载。
+       * 卸载之前它必须一直被压制（scb-open），否则就是 issue #9 的闪现（高度跳变）。 */
+      var wrap = document.querySelector('[data-snow-anchor="chat.input"] .token-usage-ring-wrapper');
+      var ttNow = document.querySelector('.token-usage-tooltip');
+      if (!n) {
+        fr.push({ gone: true, t: Date.now() - t0 });
+      } else {
+        var r = n.getBoundingClientRect();
+        fr.push({
+          t: Date.now() - t0,
+          open: n.classList.contains('is-open'),
+          h: Math.round(r.height),
+          scbOpen: wrap ? wrap.classList.contains('scb-open') : null,
+          ttGone: !ttNow,
+          ttHidden: ttNow ? getComputedStyle(ttNow).visibility === 'hidden' : null,
+        });
+      }
+      if (sampling2) setTimeout(sample, 16);
+    })();
+    var region = document.querySelector('.chat-input-region');
+    var ringNow = document.querySelector('.token-usage-ring-wrapper');
+    if (ringNow) ringNow.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: region }));
+    /* React 终于提交：mouseleave 的卸载在 400ms 后生效 */
+    setTimeout(function () {
+      var ttNow = document.querySelector('.token-usage-tooltip');
+      if (ttNow && ttNow.parentNode) ttNow.parentNode.removeChild(ttNow);
+    }, 400);
+    setTimeout(function () {
+      sampling2 = false;
+      /* 收起 90ms + 淡出 120ms ≈ 210ms 内面板仍可见，这段时间高度必须恒定 */
+      var visible = fr.filter(function (f) { return !f.gone && f.t <= 215; }).map(function (f) { return f.h; });
+      var n = document.querySelector('[data-snow-anchor="chat.input"] .scb-pop');
+      out.closeFrames = fr;
+      out.closeStable = visible.length > 4 && visible.every(function (h) { return Math.abs(h - visible[0]) <= 1; });
+      out.closeHidden = !!(n && !n.classList.contains('is-open'));
+      out.closeReflowed = fr.some(function (f) { return !f.gone && f.t > 215 && f.h !== visible[0]; });
+      /* 核心（issue #9）：宿主 tooltip DOM 尚未卸载（React 慢提交）的整段时间里，
+       * 它必须保持不可见 —— 从 mouseout 一路到卸载完成，任何一帧可见都是闪现 */
+      var ttAlive = fr.filter(function (f) { return !f.gone && f.ttGone === false; });
+      out.ttSuppressedUntilGone =
+        ttAlive.length > 8 &&
+        ttAlive.every(function (f) { return f.ttHidden === true; });
+      /* 卸载完成之后压制要及时解除，不能永久压住宿主原生行为（轮询间隔 80ms，留余量到 500ms） */
+      var after = fr.filter(function (f) { return !f.gone && f.ttGone === true && f.t >= 500; });
+      out.scbReleasedAfter =
+        after.length > 0 &&
+        after.every(function (f) { return f.scbOpen === false; });
+      document.getElementById('result').textContent = JSON.stringify(out);
+    }, 700);
+  }
+
+  /* 逐帧采样：打开后每一帧的高度 / 底部 / 是否打开，任何一帧变化都会被抓住 */
+  var frames = [];
+  var sampling = true;
+  var started = false;
+  function sampleFrames() {
+    var p = document.querySelector('[data-snow-anchor="chat.input"] .scb-pop');
+    var open = !!(p && p.classList.contains('is-open'));
+    if (!open && !started) {
+      if (sampling) setTimeout(sampleFrames, 16);
+      return;
+    }
+    started = true;
+    if (p) {
+      var r = p.getBoundingClientRect();
+      frames.push({ open: open, h: Math.round(r.height), b: Math.round(r.bottom) });
+    } else {
+      frames.push({ open: false, h: 0, b: 0, gone: true });
+    }
+    if (sampling) setTimeout(sampleFrames, 16);
+  }
+
+  /* 记录关键节点上的锚点与内容：宿主 tooltip 显隐、用量推送都不应让面板跳或变 */
+  var anchors = [];
+  function snap() {
+    var p = document.querySelector('[data-snow-anchor="chat.input"] .scb-pop');
+    if (!p) return;
+    var r = p.getBoundingClientRect();
+    var used = p.querySelector('.scb-used');
+    var ctx = p.querySelector('.scb-ctx');
+    anchors.push({
+      bottom: Math.round(r.bottom),
+      top: Math.round(r.top),
+      height: Math.round(r.height),
+      rows: p.querySelectorAll('.scb-row').length,
+      native: p.querySelectorAll('.scb-native-row').length,
+      used: used ? used.textContent : null,
+      ctx: ctx ? ctx.textContent : null,
+    });
+  }
+
+  /* 模拟打开期间宿主推送新的用量（流式输出 / 数据回流） */
+  function pushRuntime() {
+    var cb = window.__subs && window.__subs.runtime;
+    if (!cb || !window.__meta.runtime) return;
+    var rt = JSON.parse(JSON.stringify(window.__meta.runtime.domains.runtime));
+    rt.conversation.tokenUsage.inputTokens = 90000;
+    rt.conversation.tokenUsage.outputTokens = 20000;
+    if (rt.chatInput) rt.chatInput.maxContextTokens = 200000;
+    cb({ domains: { runtime: rt } });
+  }
+
+  /* 读桥接伪元素：它必须覆盖圆环与浮层之间的空隙，指针穿行时才不会触发移出 */
+  function readBridge() {
+    var p = document.querySelector('[data-snow-anchor="chat.input"] .scb-pop');
+    if (!p) return null;
+    var after = getComputedStyle(p, '::after');
+    return {
+      cls: p.className,
+      content: after.content,
+      position: after.position,
+      height: after.height,
+      width: after.width,
+      bottom: after.bottom,
+      top: after.top,
+      right: after.right,
+    };
+  }
+
+  /* 模拟指针从圆环移向浮层：中间隔着 8px 空隙，面板不能因此收起 */
+  function moveToPop() {
+    var pop = document.querySelector('[data-snow-anchor="chat.input"] .scb-pop');
+    var region = document.querySelector('.chat-input-region');
+    if (ring) ring.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: region }));
+    /* 30ms 后指针到达浮层：真实指针先经过桥接伪元素，这里等价地直接进入浮层 */
+    setTimeout(function () {
+      if (pop) pop.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    }, 30);
+  }
+
+  /* 模拟宿主重建圆环节点（流式开始 / 结束会切 placeholder）：面板应保持打开、内容不变 */
+  function rebuildRing() {
+    sampling = false;
+    var old = document.querySelector('[data-snow-anchor="chat.input"] .token-usage-ring-wrapper');
+    if (!old) return;
+    var fresh = old.cloneNode(true);
+    var p = fresh.querySelector('.scb-pop');
+    if (p) p.parentNode.removeChild(p); /* 宿主重渲染不会保留插件插入的节点 */
+    fresh.classList.remove('scb-open');
+    old.parentNode.replaceChild(fresh, old);
+    ring = fresh;
+    tt = fresh.querySelector('.token-usage-tooltip');
+    if (tt) tt.style.display = '';
+  }
+
   var ring = document.querySelector('.token-usage-ring-wrapper');
   var tt = document.querySelector('.token-usage-tooltip');
-  if (tt) tt.style.display = 'none';
+  var moveKeptOpen = null;
+  var intentPending = null;
+  var hostHiddenEarly = null;
+  var rebuilt = {};
   if (ring) ring.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  setTimeout(function () { if (tt) tt.style.display = ''; }, 60);
-  setTimeout(report, 360);
+  /* 指针进入的瞬间就要压住宿主原生浮层，不能等 100ms 后面板打开才隐藏 */
+  setTimeout(function () {
+    var p = document.querySelector('[data-snow-anchor="chat.input"] .scb-pop');
+    hostHiddenEarly = tt ? getComputedStyle(tt).visibility === 'hidden' : null;
+    intentPending = !!(p && p.classList.contains('is-open'));
+  }, 40);
+  setTimeout(sampleFrames, 0);
+  setTimeout(snap, 160);
+  /* 让宿主 tooltip 真的显形（临时撤掉 scb-open），面板锚点不应跟着变 */
+  setTimeout(function () {
+    if (ring) ring.classList.remove('scb-open');
+    if (tt) tt.style.display = '';
+    snap();
+  }, 240);
+  setTimeout(function () {
+    if (ring) ring.classList.add('scb-open');
+    snap();
+  }, 300);
+  setTimeout(snap, 330);
+  setTimeout(moveToPop, 350);
+  /* 距离开圆环 190ms（超过 90ms 收起延迟），面板必须还开着 */
+  setTimeout(function () {
+    var p = document.querySelector('[data-snow-anchor="chat.input"] .scb-pop');
+    moveKeptOpen = !!(p && p.classList.contains('is-open'));
+  }, 540);
+  setTimeout(rebuildRing, 560);
+  setTimeout(function () {
+    var p = document.querySelector('[data-snow-anchor="chat.input"] .scb-pop');
+    rebuilt.open = !!(p && p.classList.contains('is-open'));
+    rebuilt.height = p ? Math.round(p.getBoundingClientRect().height) : 0;
+    snap();
+  }, 640);
+  setTimeout(pushRuntime, 660);
+  setTimeout(snap, 720);
+  setTimeout(report, 780);
 })();
 `;
 
@@ -259,7 +469,11 @@ window.snow = {
   on: function () {},
   onCleanup: function (fn) { window.__cleanup = fn; },
   metadata: {
-    subscribe: function () { return { unsubscribe: function () {} }; },
+    subscribe: function (domain, cb) {
+      window.__subs = window.__subs || {};
+      window.__subs[domain] = cb;
+      return { unsubscribe: function () {} };
+    },
     get: function (domain) { return Promise.resolve(window.__meta[domain] || { domains: {} }); }
   }
 };
@@ -292,7 +506,7 @@ function run(cw, noUsage) {
       "--no-sandbox",
       "--hide-scrollbars",
       "--allow-file-access-from-files",
-      "--virtual-time-budget=1500",
+      "--virtual-time-budget=2200",
       "--window-size=520,900",
       "--dump-dom",
       "file:///" + htmlPath.replace(/\\/g, "/") + "?cw=" + cw + (noUsage ? "&nou=1" : ""),
@@ -345,8 +559,19 @@ for (const w of widths) {
   expect(r.note && /实测/.test(r.note), "缺少实测口径说明: " + r.note, w);
   expect(r.hasMoney === false, "浮层仍包含金额符号", w);
   expect(r.hasPriceUi === false, "浮层仍有单价 / 成本元素", w);
-  expect(r.hostTooltipDisplay === "none", "宿主原生 tooltip 未隐藏（会造成两块浮层）: " + r.hostTooltipDisplay, w);
+  expect(r.hostTooltipDisplay === "hidden", "宿主原生 tooltip 未隐藏（会造成两块浮层）: " + r.hostTooltipDisplay, w);
   expect(r.nativeCount >= 5, "面板内原生用量行不足: " + r.nativeCount, w);
+  expect(
+    /输入5\.00K/.test(r.nativeText) &&
+      /输出2\.00K/.test(r.nativeText) &&
+      /缓存写入1\.00K/.test(r.nativeText) &&
+      /缓存命中4\.00K/.test(r.nativeText) &&
+      /合计12\.0K/.test(r.nativeText) &&
+      /缓存命中率40%/.test(r.nativeText) &&
+      /上下文200K/.test(r.nativeText),
+    "原生用量行与 runtime 口径不一致: " + r.nativeText,
+    w
+  );
   expect(r.nativeText && /输入/.test(r.nativeText) && /合计/.test(r.nativeText) && /上下文/.test(r.nativeText), "原生用量信息丢失: " + r.nativeText, w);
 
   expect(r.rowsAfterCollapse === 0, "折叠后明细未隐藏: " + r.rowsAfterCollapse, w);
@@ -355,7 +580,76 @@ for (const w of widths) {
 
   expect(r.withinViewport === true, "浮层越出视口: " + JSON.stringify(r.popRect), w);
   expect(r.popOverflowsSelf === false, "浮层内容横向溢出", w);
+  const bottoms = (r.anchors || []).map((a) => a.bottom);
+  expect(
+    bottoms.length >= 2 && bottoms.every((b) => Math.abs(b - bottoms[0]) <= 1),
+    "悬浮期间浮层锚点跳动（宿主 tooltip 显隐不应改变面板位置）: " + JSON.stringify(r.anchors),
+    w
+  );
+  const first = (r.anchors || [])[0] || {};
+  const frozen =
+    (r.anchors || []).length >= 4 &&
+    (r.anchors || []).every(
+      (a) =>
+        a.height === first.height &&
+        a.rows === first.rows &&
+        a.native === first.native &&
+        a.used === first.used &&
+        a.ctx === first.ctx
+    );
+  expect(frozen, "悬浮期间面板内容变化（宿主推送用量不应重绘）: " + JSON.stringify(r.anchors), w);
+
+  const frames = r.frames || [];
+  const openFrames = frames.filter((f) => f.open);
+  expect(
+    frames.length >= 20 && frames.every((f) => f.open),
+    "悬浮期间面板曾收起: " + JSON.stringify(frames.filter((f) => !f.open).slice(0, 4)) + "（共 " + frames.length + " 帧）",
+    w
+  );
+  expect(
+    openFrames.length > 0 && openFrames.every((f) => Math.abs(f.h - openFrames[0].h) <= 1),
+    "逐帧采样出现高度变化: " + JSON.stringify(openFrames.slice(0, 24)),
+    w
+  );
+  expect(r.intentPending === false, "指针刚进入圆环面板就展开了（缺少打开意图延迟）", w);
+  expect(r.hostHiddenEarly === true, "指针进入后宿主原生浮层没被立即压住（会先显示再被面板替换）", w);
+  expect(r.moveKeptOpen === true, "指针从圆环移向浮层时面板被收起（8px 空隙死区）", w);
+  expect(
+    r.bridge && r.bridge.position === "absolute" && r.bridge.content !== "none",
+    "浮层缺少桥接伪元素: " + JSON.stringify(r.bridge),
+    w
+  );
+  expect(
+    r.bridge &&
+      /scb-bridge-bottom/.test(r.bridge.cls) &&
+      parseFloat(r.bridge.height) >= 8 &&
+      parseFloat(r.bridge.bottom) <= -8,
+    "桥接未覆盖圆环与浮层之间的 8px 间隙: " + JSON.stringify(r.bridge),
+    w
+  );
+  expect(r.rebuilt && r.rebuilt.open === true, "宿主重建圆环节点后面板未保持打开", w);
+  expect(
+    r.rebuilt && openFrames.length > 0 && Math.abs(r.rebuilt.height - openFrames[0].h) <= 1,
+    "宿主重建圆环节点后面板高度变化: " + (r.rebuilt && r.rebuilt.height) + " vs " + (openFrames[0] && openFrames[0].h),
+    w
+  );
+  expect(r.closeStable === true, "收起 / 淡出期间面板高度变化: " + JSON.stringify((r.closeFrames || []).filter((f) => !f.gone && f.t <= 215)), w);
+  expect(r.closeHidden === true, "移出后浮层未收起", w);
+  expect(r.closeReflowed === true, "收起后未在不可见时应用新数据（下次打开会是旧内容）", w);
+  expect(
+    r.ttSuppressedUntilGone === true,
+    "宿主 tooltip 卸载前闪现（issue #9 高度跳变，React 慢提交场景）: " +
+      JSON.stringify((r.closeFrames || []).filter((f) => !f.gone && f.ttGone === false && f.ttHidden !== true)),
+    w
+  );
+  expect(
+    r.scbReleasedAfter === true,
+    "宿主 tooltip 卸载后未解除压制（会压住宿主原生行为）: " +
+      JSON.stringify((r.closeFrames || []).filter((f) => !f.gone && f.ttGone === true && f.t >= 500 && f.scbOpen !== false)),
+    w
+  );
   expect(r.docOverflowX === false, "页面出现横向滚动", w);
+  expect(r.docOverflowY === false, "面板导致页面出现纵向滚动（显示时会带动整体布局）", w);
 }
 
 /* 没有首轮 usage 记录时退化为纯估算口径 */

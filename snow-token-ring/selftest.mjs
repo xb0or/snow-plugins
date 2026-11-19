@@ -65,6 +65,9 @@ const FN_NAMES = [
   "contextSnapshot",
   "buildBreakdown",
   "pctOf",
+  "fmtHostTokens",
+  "fmtPct1",
+  "buildNativeRows",
 ];
 
 function buildAxis(mockState) {
@@ -334,6 +337,44 @@ check("基线超过当前上下文时消息归零并标记裁剪", () => {
   near(msg.tokens, 0);
   const sum = over.parts.reduce((s, p) => s + p.tokens, 0);
   near(sum, over.realTotal, 1e-6);
+});
+
+/* ---------- 4.5 原生用量行（与宿主 TokenUsageRing 同口径） ---------- */
+
+const nativeAxis = buildAxis({});
+
+check("原生行：K / M / B 单位与小数位同宿主", () => {
+  const f = nativeAxis.fmtHostTokens;
+  assert(f(751) === "751", "751 -> " + f(751));
+  assert(f(4030) === "4.03K", "4030 -> " + f(4030));
+  assert(f(154000) === "154K", "154000 -> " + f(154000));
+  assert(f(1000000) === "1.00M", "1e6 -> " + f(1000000));
+  assert(f(1500000000) === "1.50B", "1.5e9 -> " + f(1500000000));
+});
+
+check("原生行：命中率一位小数且去掉多余的 .0", () => {
+  const p = nativeAxis.fmtPct1;
+  assert(p(98.4) === "98.4%", "98.4 -> " + p(98.4));
+  assert(p(40) === "40%", "40 -> " + p(40));
+  assert(p(0.04) === "0%", "0.04 -> " + p(0.04));
+});
+
+check("原生行：缓存行按条件出现，数值与顺序同宿主", () => {
+  const rows = nativeAxis.buildNativeRows({
+    snap: { input: 10000, output: 2000, cacheWrite: 1000, cacheRead: 4000, nonCachedInput: 5000, total: 12000 },
+    max: 200000,
+  });
+  const labels = rows.map((r) => r.label).join(",");
+  assert(labels === "输入,输出,缓存写入,缓存命中,合计,缓存命中率,上下文", "行顺序: " + labels);
+  assert(rows.find((r) => r.label === "输入").value === "5.00K", "输入值");
+  assert(rows.find((r) => r.label === "合计").value === "12.0K", "合计值");
+  assert(rows.find((r) => r.label === "缓存命中率").value === "40%", "命中率");
+
+  const bare = nativeAxis.buildNativeRows({
+    snap: { input: 10000, output: 2000, cacheWrite: 0, cacheRead: 0, nonCachedInput: 10000, total: 12000 },
+    max: 0,
+  });
+  assert(bare.map((r) => r.label).join(",") === "输入,输出,合计", "无缓存 / 无上限时应只有三行");
 });
 
 /* ---------- 5. 空态 ---------- */
